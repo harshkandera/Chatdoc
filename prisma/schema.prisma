@@ -1,0 +1,144 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Chat {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String?
+  model     String?
+  provider  String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  User      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  Message   Message[]
+  workspaceId String?
+  Workspace   Workspace? @relation(fields: [workspaceId], references: [id])
+
+  @@index([userId, createdAt])
+}
+
+
+model Message {
+  id        String      @id @default(cuid())
+  chatId    String
+  role      MessageRole
+  content   String
+  tokens    Int?
+  latencyMs Int?
+  createdAt DateTime    @default(now())
+  Chat      Chat        @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId, createdAt])
+}
+
+model User {
+  id        String      @id @default(cuid())
+  email     String      @unique
+  name      String?
+  imageUrl  String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  Chat      Chat[]
+  Workspace Workspace[]
+
+  @@index([email])
+}
+
+enum MessageRole {
+  user
+  assistant
+}
+
+// Shared documentation source - indexed once, used by all users
+model DocSource {
+  id            String    @id @default(cuid())
+  
+  // Identification
+  canonicalUrl  String    @unique      // Normalized: "nextjs.org/docs"
+  rootUrl       String                 // Actual scrape URL
+  
+  // Metadata (from verification)
+  productName   String                 // "Next.js"
+  docType       String    @default("guide")  // framework | api | library
+  version       String?                // "v15"
+  description   String?                // Brief description
+  
+  // Indexing status
+  status        String    @default("pending")  // pending | indexing | ready | error
+  statusMessage String?                // "Scraping page 5/10", "Generating embeddings..."
+  lastIndexedAt DateTime?
+  documentCount Int       @default(0)  // Number of pages scraped
+  chunkCount    Int       @default(0)  // Number of chunks created
+  
+  // Timestamps
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  Workspace     Workspace[]
+  Chunk         Chunk[]
+  
+  @@index([canonicalUrl])
+  @@index([status])
+}
+
+// Chunk metadata storage - backup and extended metadata
+model Chunk {
+  id            String    @id @default(cuid())
+  docSourceId   String
+  DocSource     DocSource @relation(fields: [docSourceId], references: [id], onDelete: Cascade)
+  
+  // Core content (also stored in Pinecone metadata)
+  content       String                 // Full chunk text
+  url           String                 // Source page URL
+  urlHash       String                 // hash(url) for dedup
+  title         String                 // Page title
+  section       String?                // H1/H2 heading the chunk belongs to
+  chunkIndex    Int                    // Position in document (0, 1, 2...)
+  
+  // Extended metadata (Postgres only, not in Pinecone)
+  headings      String?                // "Docs > App Router > Routing"
+  pageType      String    @default("guide")  // guide | api | tutorial | faq
+  version       String?                // "v15", "latest"
+  hasCode       Boolean   @default(false)
+  codeLanguages String[]               // ["typescript", "bash"]
+  wordCount     Int       @default(0)
+  
+  // Pinecone reference
+  vectorId      String    @unique      // Maps to Pinecone vector ID
+  
+  // Timestamps
+  indexedAt     DateTime  @default(now())
+  
+  @@index([docSourceId])
+  @@index([urlHash])
+  @@index([vectorId])
+}
+
+
+// User's workspace - references a shared DocSource
+model Workspace {
+  id            String     @id @default(cuid())
+  userId        String
+  name          String
+  
+  // Reference to shared doc source (replaces sourceUrl)
+  docSourceId   String
+  DocSource     DocSource  @relation(fields: [docSourceId], references: [id])
+  
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  
+  User          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  Chat          Chat[]
+  
+  // One workspace per user per doc source
+  @@unique([userId, docSourceId])
+  @@index([userId])
+}
