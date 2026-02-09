@@ -3,7 +3,8 @@ import { prisma } from "@/lib/db/prisma";
 
 export const POST = Webhooks({
   webhookSecret: process.env.POLAR_WEBHOOK_SECRET!,
-  onPayload: async (payload) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onPayload: async (payload: any) => {
     const { type, data } = payload;
     console.log(`[Polar Webhook] Handling event: ${type}`);
 
@@ -12,13 +13,9 @@ export const POST = Webhooks({
         case "subscription.created":
         case "subscription.updated":
         case "subscription.active": // Grant Access
-          if (data.user_id || data.customer_id) {
-            // Strategy: Try to find user by customer_id if stored, or by email.
-            // Note: payload structure might vary slightly, but assuming standard Polar payload.
-            // Using 'any' cast for data if types aren't inferred perfectly by helper yet
+          {
             const customerId = data.customer_id;
-            const email =
-              (data as any).user?.email || (data as any).customer?.email;
+            const email = data.user?.email || data.customer?.email;
 
             if (email) {
               await prisma.user.update({
@@ -29,11 +26,11 @@ export const POST = Webhooks({
                   status:
                     type === "subscription.active"
                       ? "active"
-                      : (data as any).status || "free",
-                  currentPeriodEnd: (data as any).current_period_end
-                    ? new Date((data as any).current_period_end)
+                      : data.status || "free",
+                  currentPeriodEnd: data.current_period_end
+                    ? new Date(data.current_period_end)
                     : undefined,
-                  variantId: (data as any).product_price_id,
+                  variantId: data.product_price_id,
                 },
               });
             } else if (customerId) {
@@ -46,14 +43,14 @@ export const POST = Webhooks({
                     status:
                       type === "subscription.active"
                         ? "active"
-                        : (data as any).status || "free",
-                    currentPeriodEnd: (data as any).current_period_end
-                      ? new Date((data as any).current_period_end)
+                        : data.status || "free",
+                    currentPeriodEnd: data.current_period_end
+                      ? new Date(data.current_period_end)
                       : undefined,
-                    variantId: (data as any).product_price_id,
+                    variantId: data.product_price_id,
                   },
                 });
-              } catch (e) {
+              } catch {
                 // Ignore if not found
               }
             }
@@ -77,7 +74,6 @@ export const POST = Webhooks({
       }
     } catch (error) {
       console.error("[Polar Webhook] Database update failed:", error);
-      // Webhooks helper presumably handles errors by returning 500 or similar
       throw error;
     }
   },
