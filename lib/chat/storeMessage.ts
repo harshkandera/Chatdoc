@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
-import { MessageRole } from "@/generated/prisma/client";
+import { MessageRole } from "@/app/generated/prisma/client";
 
 export async function storeMessage(params: {
   chatId: string;
