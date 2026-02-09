@@ -102,7 +102,7 @@ export async function handleQuery(
       "   🔒 [handler] Deep Research blocked (Free Plan). Falling back to Standard.",
     );
     decompose = false;
-    reasons = ["Free Plan limit"];
+    reasons = ["free_plan_limit"];
   }
 
   console.log(

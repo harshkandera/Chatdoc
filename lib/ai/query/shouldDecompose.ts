@@ -4,7 +4,8 @@ type DecomposeReason =
   | "mixed_intents"
   | "error_plus_question"
   | "comparison"
-  | "long_multi_intent";
+  | "long_multi_intent"
+  | "free_plan_limit";
 
 export function shouldDecompose(prompt: string): {
   decompose: boolean;
