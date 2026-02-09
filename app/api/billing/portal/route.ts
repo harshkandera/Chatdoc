@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { NextRequest } from "next/server";
 
 export const GET = CustomerPortal({
-  accessToken: process.env.POLAR_ACCESS_TOKEN,
+  accessToken: process.env.POLAR_ACCESS_TOKEN!,
   getCustomerId: async (req: NextRequest) => {
     const { userId } = await auth();
     if (!userId) return "";
