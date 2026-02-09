@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db/prisma";
 import { NextResponse } from "next/server";
 import {
@@ -7,6 +7,7 @@ import {
 } from "@/lib/db/docSource";
 import { inngest } from "@/lib/inngest/client";
 import { checkDocLimit } from "@/lib/subscription";
+import { ensureUser } from "@/lib/db/user";
 
 export const dynamic = "force-dynamic";
 
@@ -46,11 +47,21 @@ export async function GET() {
 
 // POST /api/workspaces - Create a new workspace
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const user = await currentUser();
 
-  if (!userId) {
+  if (!user || !user.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // Ensure user exists in our DB to prevent foreign key errors
+  await ensureUser({
+    id: user.id,
+    email: user.emailAddresses[0]?.emailAddress || "",
+    name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+    imageUrl: user.imageUrl,
+  });
+
+  const userId = user.id;
 
   const body = await req.json();
   const { name, sourceUrl, productName } = body;

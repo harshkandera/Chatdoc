@@ -1,9 +1,10 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { createChat } from "@/lib/chat/createChat";
 import { storeMessage } from "@/lib/chat/storeMessage";
 import { prisma } from "@/lib/db/prisma";
 import { handleQuery } from "@/lib/ai/query/handler";
 import { ModelProvider } from "@/lib/ai/models";
+import { ensureUser } from "@/lib/db/user";
 
 export async function POST(req: Request) {
   const requestStart = Date.now();
@@ -11,12 +12,22 @@ export async function POST(req: Request) {
     `\n🚀 [${new Date().toISOString()}] ========== CHAT REQUEST START ==========`,
   );
 
-  const { userId } = await auth();
+  const user = await currentUser();
   console.log(`⏱️  [+${Date.now() - requestStart}ms] Auth check complete`);
 
-  if (!userId) {
+  if (!user || !user.id) {
     return new Response("Unauthorized", { status: 401 });
   }
+
+  const userId = user.id;
+
+  // JIT Provisioning: Ensure user exists in local DB
+  await ensureUser({
+    id: userId,
+    email: user.emailAddresses[0]?.emailAddress || "",
+    name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+    imageUrl: user.imageUrl,
+  });
 
   const body = await req.json();
 
