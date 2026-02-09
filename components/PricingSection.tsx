@@ -34,7 +34,7 @@ const plans = [
       "Early Access to Features",
     ],
     cta: "Upgrade to Pro",
-    href: process.env.NEXT_PUBLIC_POLAR_CHECKOUT_URL || "#",
+    href: `/api/checkout?products=${process.env.NEXT_PUBLIC_POLAR_PRICE_ID || ""}`,
     popular: true,
     color: "emerald",
   },

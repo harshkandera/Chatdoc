@@ -69,6 +69,8 @@ export function ChatHeader({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      
       <div className="flex items-center gap-4 min-w-0 flex-shrink-0">
         {/* Workspace Badge */}
         {workspace && (

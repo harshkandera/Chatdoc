@@ -9,7 +9,6 @@ import {
   MessageSquare,
   Settings,
   Zap,
-  HelpCircle,
   PanelLeftClose,
   PanelLeft,
   ChevronDown,
@@ -68,11 +67,6 @@ const accountItems = [
     href: "/chat?view=workspaces",
   },
   { icon: Settings, label: "Preferences", href: "/settings" },
-  {
-    icon: HelpCircle,
-    label: "Help & Feedback",
-    href: "mailto:support@chatdoc.com",
-  },
 ];
 
 export function ChatSidebar() {
