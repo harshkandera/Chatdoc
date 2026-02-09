@@ -46,25 +46,10 @@ export default function SettingsPage() {
     fetchUsage();
   }, []);
 
-  const handleManageSubscription = async () => {
+  const handleManageSubscription = (e: React.MouseEvent) => {
+    e.preventDefault();
     setPortalLoading(true);
-    try {
-      const response = await fetch("/api/billing/portal", {
-        method: "POST",
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        // Redirect to Polar Customer Portal
-        window.location.href = data.url;
-      } else {
-        console.error("Failed to generate portal link");
-      }
-    } catch (error) {
-      console.error("Error managing subscription:", error);
-    } finally {
-      setPortalLoading(false);
-    }
+    window.location.href = "/api/billing/portal";
   };
 
   if (loading) {
@@ -115,13 +100,13 @@ export default function SettingsPage() {
               </div>
 
               {!usage?.isPro ? (
-                 <Button
-                   onClick={() => setShowUpgradeModal(true)}
-                   className="bg-emerald-600 hover:bg-emerald-500 text-white"
-                 >
-                    <Zap className="w-4 h-4 mr-2" />
-                    Upgrade to Pro
-                 </Button>
+                <Button
+                  onClick={() => setShowUpgradeModal(true)}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white"
+                >
+                  <Zap className="w-4 h-4 mr-2" />
+                  Upgrade to Pro
+                </Button>
               ) : (
                 <Button
                   variant="outline"
@@ -170,11 +155,12 @@ export default function SettingsPage() {
           </div>
 
           {usage?.isPro && (
-             <div className="text-sm text-neutral-400">
-                <p>
-                  To manage invoices and payment methods, visit the Polar Billing Portal.
-                </p>
-             </div>
+            <div className="text-sm text-neutral-400">
+              <p>
+                To manage invoices and payment methods, visit the Polar Billing
+                Portal.
+              </p>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -190,7 +176,7 @@ export default function SettingsPage() {
               navbarMobileMenuButton: "hidden",
               headerTitle: "text-xl text-white",
               headerSubtitle: "text-neutral-400",
-            }
+            },
           }}
         />
       </div>

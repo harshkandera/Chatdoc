@@ -71,7 +71,9 @@ export function UpgradeModal({ isOpen, onClose }: UpgradeModalProps) {
 
           <div className="flex flex-col gap-3">
             <Link
-              href={process.env.NEXT_PUBLIC_POLAR_CHECKOUT_URL || "#"}
+              href={`/api/checkout?products=${
+                process.env.NEXT_PUBLIC_POLAR_PRICE_ID || ""
+              }`}
               className="w-full py-3 bg-white text-black font-semibold rounded-xl text-center hover:bg-neutral-200 transition-colors"
             >
               Upgrade Now
