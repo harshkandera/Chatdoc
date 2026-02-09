@@ -123,6 +123,7 @@ export const DocSourceScalarFieldEnum = {
   id: 'id',
   canonicalUrl: 'canonicalUrl',
   rootUrl: 'rootUrl',
+  productKey: 'productKey',
   productName: 'productName',
   docType: 'docType',
   version: 'version',

@@ -84,18 +84,54 @@ export async function POST(req: Request) {
     );
   }
 
-  // Validate URL
+  // Validate URL with AI Verification Agent
+  let verification;
   try {
-    new URL(sourceUrl);
-  } catch {
-    return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
+    const { verifyDocumentationUrl } =
+      await import("@/lib/ai/validation/verifyUrl");
+    console.log(`[API/Workspaces] Verifying URL: ${sourceUrl}`);
+    verification = await verifyDocumentationUrl(sourceUrl);
+
+    if (!verification.isValid) {
+      return NextResponse.json(
+        { error: verification.error || "Invalid URL" },
+        { status: 400 },
+      );
+    }
+
+    // STRICT MODE: Only allow official docs
+    // You can relax this to "high" confidence if you want to allow some blogs
+    if (!verification.isOfficialDocs) {
+      return NextResponse.json(
+        {
+          error:
+            "This does not appear to be official documentation. referencing blogs or tutorials is not supported yet.",
+          details: verification,
+        },
+        { status: 400 },
+      );
+    }
+  } catch (error) {
+    console.error(`[API/Workspaces] Verification failed:`, error);
+    // Fallback: allow creation but warn? Or fail safe?
+    // For now, let's fail safe to prevent bad data
+    return NextResponse.json(
+      { error: "Failed to verify documentation URL. Please try again." },
+      { status: 500 },
+    );
   }
+
+  // Use the VERIFIED root URL and product name
+  // This auto-fix: polar.sh/docs/api -> polar.sh/docs
+  const cleanUrl = verification.rootDocsUrl || sourceUrl;
+  const cleanName = verification.product || productName || name;
 
   // Find or create DocSource (shared across users)
   const { docSource, isNew: isNewDocSource } = await findOrCreateDocSource(
-    sourceUrl,
+    cleanUrl,
     {
-      productName: productName || name,
+      productName: cleanName,
+      docType: verification.docType,
     },
   );
 

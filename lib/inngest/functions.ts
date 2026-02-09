@@ -58,22 +58,15 @@ export const indexDocSourceFunction = inngest.createFunction(
     },
     onFailure: async ({ event, error }) => {
       const docSourceId = (event as any).data?.docSourceId;
-      if (!docSourceId) {
-        console.error(
-          `[DocSource:Unknown] Failed after retries (no docSourceId):`,
-          error,
-        );
-        return;
-      }
-      console.error(`[DocSource:${docSourceId}] Failed after retries:`, error);
+      if (!docSourceId) return;
 
-      // Emit failure event instead of direct DB write
+      // 🔥 FIRE-AND-FORGET: Emit failure event
+      // No DB writes here. Safe.
       await inngest.send({
-        name: "docsource/status.updated",
+        name: "docsource/index.failed",
         data: {
           docSourceId,
-          status: "error",
-          message: error.message || "Unknown error after retries",
+          message: error.message || "Indexing failed after retries",
         },
       });
     },
@@ -114,15 +107,7 @@ export const indexDocSourceFunction = inngest.createFunction(
           return await scrapeDocSource(docSourceId);
         } catch (error) {
           console.error(`[DocSource:${docSourceId}] Scrape failed:`, error);
-          await inngest.send({
-            name: "docsource/status.updated",
-            data: {
-              docSourceId,
-              status: "scraping",
-              message: `Scraping failed, retrying... ${(error as Error).message}`,
-            },
-          });
-          throw error;
+          throw error; // Let Inngest retry
         }
       });
 
@@ -148,15 +133,7 @@ export const indexDocSourceFunction = inngest.createFunction(
           return await chunkDocSource(docSourceId, pagesTyped);
         } catch (error) {
           console.error(`[DocSource:${docSourceId}] Chunking failed:`, error);
-          await inngest.send({
-            name: "docsource/status.updated",
-            data: {
-              docSourceId,
-              status: "chunking",
-              message: `Chunking failed, retrying... ${(error as Error).message}`,
-            },
-          });
-          throw error;
+          throw error; // Let Inngest retry
         }
       });
 
@@ -187,15 +164,7 @@ export const indexDocSourceFunction = inngest.createFunction(
               `[DocSource:${docSourceId}] Embedding failed:`,
               error,
             );
-            await inngest.send({
-              name: "docsource/status.updated",
-              data: {
-                docSourceId,
-                status: "embedding",
-                message: `Embedding failed, retrying... ${(error as Error).message}`,
-              },
-            });
-            throw error;
+            throw error; // Let Inngest retry
           }
         },
       );
@@ -237,15 +206,7 @@ export const indexDocSourceFunction = inngest.createFunction(
           );
         } catch (error) {
           console.error(`[DocSource:${docSourceId}] Storing failed:`, error);
-          await inngest.send({
-            name: "docsource/status.updated",
-            data: {
-              docSourceId,
-              status: "storing",
-              message: `Storing failed, retrying... ${(error as Error).message}`,
-            },
-          });
-          throw error;
+          throw error; // Let Inngest retry
         }
       });
 
@@ -270,11 +231,26 @@ export const indexDocSourceFunction = inngest.createFunction(
         chunkCount: chunks.length,
       };
     } catch (error) {
-      // On final failure (after all retries), set status to error
+      // On final failure (after all retries), Inngest will call onFailure
       console.error(`[DocSource:${docSourceId}] Indexing failed:`, error);
-      // Let Inngest handle retries for standard errors
       throw error;
     }
+  },
+);
+
+// Dedicated Failure Handler
+// Safely updates DB after max retries
+export const docSourceFailedFunction = inngest.createFunction(
+  { id: "docsource-failed-handler" },
+  { event: "docsource/index.failed" },
+  async ({ event, step }) => {
+    const { docSourceId, message } = event.data;
+
+    await step.run("persist-error-status", async () => {
+      await updateDocSourceStatus(docSourceId, "error", {
+        message,
+      });
+    });
   },
 );
 
@@ -282,4 +258,5 @@ export const indexDocSourceFunction = inngest.createFunction(
 export const functions = [
   indexDocSourceFunction,
   updateDocSourceStatusFunction,
+  docSourceFailedFunction,
 ];

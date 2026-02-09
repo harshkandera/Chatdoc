@@ -1,16 +1,29 @@
 import { prisma } from "@/lib/db/prisma";
 import crypto from "crypto";
 
-// Normalize URL to canonical form
+/* -------------------------------------------------------
+   Helpers
+------------------------------------------------------- */
+
+const DOC_PATH_HINTS = ["docs", "doc", "documentation", "developer", "api"];
+
+// Normalize product name into stable key
+export function normalizeProductName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
+}
+
+// Normalize URL into canonical form
 export function normalizeUrl(url: string): string {
   try {
     const parsed = new URL(url);
-    // Remove protocol, www, trailing slashes, query params
+
     let canonical = parsed.hostname.replace(/^www\./, "");
 
-    // Add first path segment for docs
     const pathParts = parsed.pathname.split("/").filter(Boolean);
-    if (pathParts.length > 0) {
+    if (pathParts.length > 0 && DOC_PATH_HINTS.includes(pathParts[0])) {
       canonical += "/" + pathParts[0];
     }
 
@@ -20,12 +33,15 @@ export function normalizeUrl(url: string): string {
   }
 }
 
-// Generate hash for URL (for deduplication)
+// Generate hash (optional but useful)
 export function hashUrl(url: string): string {
   return crypto.createHash("md5").update(url).digest("hex").slice(0, 16);
 }
 
-// Find existing DocSource or create new one
+/* -------------------------------------------------------
+   DocSource
+------------------------------------------------------- */
+
 export async function findOrCreateDocSource(
   rootUrl: string,
   metadata: {
@@ -36,19 +52,54 @@ export async function findOrCreateDocSource(
   },
 ) {
   const canonicalUrl = normalizeUrl(rootUrl);
+  const productKey = normalizeProductName(metadata.productName);
 
-  // Check if DocSource already exists
-  const existing = await prisma.docSource.findUnique({
+  // 1️⃣ STRONGEST MATCH — same product
+  const byProduct = await prisma.docSource.findFirst({
+    where: { productKey },
+  });
+
+  if (byProduct) {
+    return { docSource: byProduct, isNew: false };
+  }
+
+  // 2️⃣ Exact canonical URL match
+  const exact = await prisma.docSource.findUnique({
     where: { canonicalUrl },
   });
 
-  if (existing) {
-    return { docSource: existing, isNew: false };
+  if (exact) {
+    return { docSource: exact, isNew: false };
   }
 
-  // Create new DocSource
+  // 3️⃣ Related URL match (prefix logic)
+  let hostname = "";
+  try {
+    hostname = new URL(rootUrl).hostname.replace(/^www\./, "");
+  } catch {}
+
+  const candidates = await prisma.docSource.findMany({
+    where: {
+      canonicalUrl: {
+        startsWith: hostname,
+      },
+    },
+  });
+
+  const related = candidates.find(
+    (c) =>
+      canonicalUrl.startsWith(c.canonicalUrl) ||
+      c.canonicalUrl.startsWith(canonicalUrl),
+  );
+
+  if (related) {
+    return { docSource: related, isNew: false };
+  }
+
+  // 4️⃣ Create new DocSource
   const docSource = await prisma.docSource.create({
     data: {
+      productKey,
       canonicalUrl,
       rootUrl,
       productName: metadata.productName,
@@ -62,21 +113,26 @@ export async function findOrCreateDocSource(
   return { docSource, isNew: true };
 }
 
-// Get DocSource by canonical URL
+/* -------------------------------------------------------
+   Getters
+------------------------------------------------------- */
+
 export async function getDocSourceByCanonicalUrl(canonicalUrl: string) {
   return prisma.docSource.findUnique({
     where: { canonicalUrl },
   });
 }
 
-// Get DocSource by ID
 export async function getDocSourceById(id: string) {
   return prisma.docSource.findUnique({
     where: { id },
   });
 }
 
-// Update DocSource status with optional message
+/* -------------------------------------------------------
+   Status Updates
+------------------------------------------------------- */
+
 export type DocSourceStatus =
   | "pending"
   | "scraping"
@@ -95,23 +151,15 @@ export async function updateDocSourceStatus(
     chunkCount?: number;
   },
 ) {
-  // FIX #4: Use transaction for critical status updates
-  // Ensures either all updates happen or none do
-  return await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
+    const isRestart = status === "pending";
 
-    // GUARD: If new status is NOT a restart (pending/scraping),
-    // prevent overwriting terminal states (ready/error).
-
-    const isRestart = status === "pending" ;
-
-    // Use updateMany to apply the condition atomically
     await tx.docSource.updateMany({
       where: {
         id,
         ...(isRestart
-          ? {} // If restarting, allow any previous status
+          ? {}
           : {
-              // If not restarting, forbid overwriting terminal states
               status: {
                 notIn: ["ready", "error"],
               },
@@ -122,7 +170,7 @@ export async function updateDocSourceStatus(
         statusMessage: options?.message ?? null,
         ...(status === "ready" && {
           lastIndexedAt: new Date(),
-          statusMessage: null, // Clear message when ready
+          statusMessage: null,
         }),
         ...(status === "error" &&
           options?.message && {
@@ -137,18 +185,19 @@ export async function updateDocSourceStatus(
       },
     });
 
-    // Return the updated (or current) record
-    return await tx.docSource.findUnique({ where: { id } });
+    return tx.docSource.findUnique({ where: { id } });
   });
 }
 
-// Find or create Workspace for user and DocSource
+/* -------------------------------------------------------
+   Workspace
+------------------------------------------------------- */
+
 export async function findOrCreateWorkspace(
   userId: string,
   docSourceId: string,
   name: string,
 ) {
-  // Check if workspace already exists for this user + docSource
   const existing = await prisma.workspace.findUnique({
     where: {
       userId_docSourceId: { userId, docSourceId },
@@ -160,7 +209,6 @@ export async function findOrCreateWorkspace(
     return { workspace: existing, isNew: false };
   }
 
-  // Create new workspace
   const workspace = await prisma.workspace.create({
     data: {
       userId,
@@ -173,7 +221,6 @@ export async function findOrCreateWorkspace(
   return { workspace, isNew: true };
 }
 
-// Get user's workspaces with DocSource info
 export async function getUserWorkspaces(userId: string) {
   return prisma.workspace.findMany({
     where: { userId },

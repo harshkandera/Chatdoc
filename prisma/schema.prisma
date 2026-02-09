@@ -71,6 +71,7 @@ model DocSource {
   // Identification
   canonicalUrl  String    @unique      // Normalized: "nextjs.org/docs"
   rootUrl       String                 // Actual scrape URL
+  productKey    String    @unique      // Normalized product name ("nextjs", "polar") for deduplication
   
   // Metadata (from verification)
   productName   String                 // "Next.js"
@@ -94,6 +95,7 @@ model DocSource {
   Chunk         Chunk[]
   
   @@index([canonicalUrl])
+  @@index([productKey])
   @@index([status])
 }
 

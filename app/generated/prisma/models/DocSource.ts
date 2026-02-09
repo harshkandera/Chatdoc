@@ -40,6 +40,7 @@ export type DocSourceMinAggregateOutputType = {
   id: string | null
   canonicalUrl: string | null
   rootUrl: string | null
+  productKey: string | null
   productName: string | null
   docType: string | null
   version: string | null
@@ -57,6 +58,7 @@ export type DocSourceMaxAggregateOutputType = {
   id: string | null
   canonicalUrl: string | null
   rootUrl: string | null
+  productKey: string | null
   productName: string | null
   docType: string | null
   version: string | null
@@ -74,6 +76,7 @@ export type DocSourceCountAggregateOutputType = {
   id: number
   canonicalUrl: number
   rootUrl: number
+  productKey: number
   productName: number
   docType: number
   version: number
@@ -103,6 +106,7 @@ export type DocSourceMinAggregateInputType = {
   id?: true
   canonicalUrl?: true
   rootUrl?: true
+  productKey?: true
   productName?: true
   docType?: true
   version?: true
@@ -120,6 +124,7 @@ export type DocSourceMaxAggregateInputType = {
   id?: true
   canonicalUrl?: true
   rootUrl?: true
+  productKey?: true
   productName?: true
   docType?: true
   version?: true
@@ -137,6 +142,7 @@ export type DocSourceCountAggregateInputType = {
   id?: true
   canonicalUrl?: true
   rootUrl?: true
+  productKey?: true
   productName?: true
   docType?: true
   version?: true
@@ -241,6 +247,7 @@ export type DocSourceGroupByOutputType = {
   id: string
   canonicalUrl: string
   rootUrl: string
+  productKey: string | null
   productName: string
   docType: string
   version: string | null
@@ -281,6 +288,7 @@ export type DocSourceWhereInput = {
   id?: Prisma.StringFilter<"DocSource"> | string
   canonicalUrl?: Prisma.StringFilter<"DocSource"> | string
   rootUrl?: Prisma.StringFilter<"DocSource"> | string
+  productKey?: Prisma.StringNullableFilter<"DocSource"> | string | null
   productName?: Prisma.StringFilter<"DocSource"> | string
   docType?: Prisma.StringFilter<"DocSource"> | string
   version?: Prisma.StringNullableFilter<"DocSource"> | string | null
@@ -300,6 +308,7 @@ export type DocSourceOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   canonicalUrl?: Prisma.SortOrder
   rootUrl?: Prisma.SortOrder
+  productKey?: Prisma.SortOrderInput | Prisma.SortOrder
   productName?: Prisma.SortOrder
   docType?: Prisma.SortOrder
   version?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -322,6 +331,7 @@ export type DocSourceWhereUniqueInput = Prisma.AtLeast<{
   OR?: Prisma.DocSourceWhereInput[]
   NOT?: Prisma.DocSourceWhereInput | Prisma.DocSourceWhereInput[]
   rootUrl?: Prisma.StringFilter<"DocSource"> | string
+  productKey?: Prisma.StringNullableFilter<"DocSource"> | string | null
   productName?: Prisma.StringFilter<"DocSource"> | string
   docType?: Prisma.StringFilter<"DocSource"> | string
   version?: Prisma.StringNullableFilter<"DocSource"> | string | null
@@ -341,6 +351,7 @@ export type DocSourceOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   canonicalUrl?: Prisma.SortOrder
   rootUrl?: Prisma.SortOrder
+  productKey?: Prisma.SortOrderInput | Prisma.SortOrder
   productName?: Prisma.SortOrder
   docType?: Prisma.SortOrder
   version?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -366,6 +377,7 @@ export type DocSourceScalarWhereWithAggregatesInput = {
   id?: Prisma.StringWithAggregatesFilter<"DocSource"> | string
   canonicalUrl?: Prisma.StringWithAggregatesFilter<"DocSource"> | string
   rootUrl?: Prisma.StringWithAggregatesFilter<"DocSource"> | string
+  productKey?: Prisma.StringNullableWithAggregatesFilter<"DocSource"> | string | null
   productName?: Prisma.StringWithAggregatesFilter<"DocSource"> | string
   docType?: Prisma.StringWithAggregatesFilter<"DocSource"> | string
   version?: Prisma.StringNullableWithAggregatesFilter<"DocSource"> | string | null
@@ -383,6 +395,7 @@ export type DocSourceCreateInput = {
   id?: string
   canonicalUrl: string
   rootUrl: string
+  productKey?: string | null
   productName: string
   docType?: string
   version?: string | null
@@ -402,6 +415,7 @@ export type DocSourceUncheckedCreateInput = {
   id?: string
   canonicalUrl: string
   rootUrl: string
+  productKey?: string | null
   productName: string
   docType?: string
   version?: string | null
@@ -421,6 +435,7 @@ export type DocSourceUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   canonicalUrl?: Prisma.StringFieldUpdateOperationsInput | string
   rootUrl?: Prisma.StringFieldUpdateOperationsInput | string
+  productKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   productName?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -440,6 +455,7 @@ export type DocSourceUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   canonicalUrl?: Prisma.StringFieldUpdateOperationsInput | string
   rootUrl?: Prisma.StringFieldUpdateOperationsInput | string
+  productKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   productName?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -459,6 +475,7 @@ export type DocSourceCreateManyInput = {
   id?: string
   canonicalUrl: string
   rootUrl: string
+  productKey?: string | null
   productName: string
   docType?: string
   version?: string | null
@@ -476,6 +493,7 @@ export type DocSourceUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   canonicalUrl?: Prisma.StringFieldUpdateOperationsInput | string
   rootUrl?: Prisma.StringFieldUpdateOperationsInput | string
+  productKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   productName?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -493,6 +511,7 @@ export type DocSourceUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   canonicalUrl?: Prisma.StringFieldUpdateOperationsInput | string
   rootUrl?: Prisma.StringFieldUpdateOperationsInput | string
+  productKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   productName?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -510,6 +529,7 @@ export type DocSourceCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   canonicalUrl?: Prisma.SortOrder
   rootUrl?: Prisma.SortOrder
+  productKey?: Prisma.SortOrder
   productName?: Prisma.SortOrder
   docType?: Prisma.SortOrder
   version?: Prisma.SortOrder
@@ -532,6 +552,7 @@ export type DocSourceMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   canonicalUrl?: Prisma.SortOrder
   rootUrl?: Prisma.SortOrder
+  productKey?: Prisma.SortOrder
   productName?: Prisma.SortOrder
   docType?: Prisma.SortOrder
   version?: Prisma.SortOrder
@@ -549,6 +570,7 @@ export type DocSourceMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   canonicalUrl?: Prisma.SortOrder
   rootUrl?: Prisma.SortOrder
+  productKey?: Prisma.SortOrder
   productName?: Prisma.SortOrder
   docType?: Prisma.SortOrder
   version?: Prisma.SortOrder
@@ -612,6 +634,7 @@ export type DocSourceCreateWithoutChunkInput = {
   id?: string
   canonicalUrl: string
   rootUrl: string
+  productKey?: string | null
   productName: string
   docType?: string
   version?: string | null
@@ -630,6 +653,7 @@ export type DocSourceUncheckedCreateWithoutChunkInput = {
   id?: string
   canonicalUrl: string
   rootUrl: string
+  productKey?: string | null
   productName: string
   docType?: string
   version?: string | null
@@ -664,6 +688,7 @@ export type DocSourceUpdateWithoutChunkInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   canonicalUrl?: Prisma.StringFieldUpdateOperationsInput | string
   rootUrl?: Prisma.StringFieldUpdateOperationsInput | string
+  productKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   productName?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -682,6 +707,7 @@ export type DocSourceUncheckedUpdateWithoutChunkInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   canonicalUrl?: Prisma.StringFieldUpdateOperationsInput | string
   rootUrl?: Prisma.StringFieldUpdateOperationsInput | string
+  productKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   productName?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -700,6 +726,7 @@ export type DocSourceCreateWithoutWorkspaceInput = {
   id?: string
   canonicalUrl: string
   rootUrl: string
+  productKey?: string | null
   productName: string
   docType?: string
   version?: string | null
@@ -718,6 +745,7 @@ export type DocSourceUncheckedCreateWithoutWorkspaceInput = {
   id?: string
   canonicalUrl: string
   rootUrl: string
+  productKey?: string | null
   productName: string
   docType?: string
   version?: string | null
@@ -752,6 +780,7 @@ export type DocSourceUpdateWithoutWorkspaceInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   canonicalUrl?: Prisma.StringFieldUpdateOperationsInput | string
   rootUrl?: Prisma.StringFieldUpdateOperationsInput | string
+  productKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   productName?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -770,6 +799,7 @@ export type DocSourceUncheckedUpdateWithoutWorkspaceInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   canonicalUrl?: Prisma.StringFieldUpdateOperationsInput | string
   rootUrl?: Prisma.StringFieldUpdateOperationsInput | string
+  productKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   productName?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -828,6 +858,7 @@ export type DocSourceSelect<ExtArgs extends runtime.Types.Extensions.InternalArg
   id?: boolean
   canonicalUrl?: boolean
   rootUrl?: boolean
+  productKey?: boolean
   productName?: boolean
   docType?: boolean
   version?: boolean
@@ -848,6 +879,7 @@ export type DocSourceSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Ext
   id?: boolean
   canonicalUrl?: boolean
   rootUrl?: boolean
+  productKey?: boolean
   productName?: boolean
   docType?: boolean
   version?: boolean
@@ -865,6 +897,7 @@ export type DocSourceSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Ext
   id?: boolean
   canonicalUrl?: boolean
   rootUrl?: boolean
+  productKey?: boolean
   productName?: boolean
   docType?: boolean
   version?: boolean
@@ -882,6 +915,7 @@ export type DocSourceSelectScalar = {
   id?: boolean
   canonicalUrl?: boolean
   rootUrl?: boolean
+  productKey?: boolean
   productName?: boolean
   docType?: boolean
   version?: boolean
@@ -895,7 +929,7 @@ export type DocSourceSelectScalar = {
   updatedAt?: boolean
 }
 
-export type DocSourceOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "canonicalUrl" | "rootUrl" | "productName" | "docType" | "version" | "description" | "status" | "statusMessage" | "lastIndexedAt" | "documentCount" | "chunkCount" | "createdAt" | "updatedAt", ExtArgs["result"]["docSource"]>
+export type DocSourceOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "canonicalUrl" | "rootUrl" | "productKey" | "productName" | "docType" | "version" | "description" | "status" | "statusMessage" | "lastIndexedAt" | "documentCount" | "chunkCount" | "createdAt" | "updatedAt", ExtArgs["result"]["docSource"]>
 export type DocSourceInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   Workspace?: boolean | Prisma.DocSource$WorkspaceArgs<ExtArgs>
   Chunk?: boolean | Prisma.DocSource$ChunkArgs<ExtArgs>
@@ -914,6 +948,7 @@ export type $DocSourcePayload<ExtArgs extends runtime.Types.Extensions.InternalA
     id: string
     canonicalUrl: string
     rootUrl: string
+    productKey: string | null
     productName: string
     docType: string
     version: string | null
@@ -1353,6 +1388,7 @@ export interface DocSourceFieldRefs {
   readonly id: Prisma.FieldRef<"DocSource", 'String'>
   readonly canonicalUrl: Prisma.FieldRef<"DocSource", 'String'>
   readonly rootUrl: Prisma.FieldRef<"DocSource", 'String'>
+  readonly productKey: Prisma.FieldRef<"DocSource", 'String'>
   readonly productName: Prisma.FieldRef<"DocSource", 'String'>
   readonly docType: Prisma.FieldRef<"DocSource", 'String'>
   readonly version: Prisma.FieldRef<"DocSource", 'String'>
