@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   ChatHeader,
@@ -23,7 +23,7 @@ interface Workspace {
   };
 }
 
-export default function ChatPage() {
+function ChatContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const workspaceId = searchParams.get("workspace");
@@ -117,13 +117,20 @@ export default function ChatPage() {
       const data = await response.json();
 
       if (data.error) {
-        setError(data.error);
+        setError(
+          typeof data.error === "string"
+            ? data.error
+            : JSON.stringify(data.error),
+        );
         setIsLoading(false);
         return;
       }
 
       // Redirect to the new chat
       if (data.chatId) {
+        // Dispatch event to update sidebar
+        window.dispatchEvent(new Event("chat-created"));
+
         router.replace(`/chat/${data.chatId}`);
       }
 
@@ -185,5 +192,19 @@ export default function ChatPage() {
         disabled={!workspaceId}
       />
     </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-full items-center justify-center">
+          <Loader2 className="w-6 h-6 text-neutral-500 animate-spin" />
+        </div>
+      }
+    >
+      <ChatContent />
+    </Suspense>
   );
 }

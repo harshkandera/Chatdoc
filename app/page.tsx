@@ -5,6 +5,7 @@ import { FeaturesSection } from "@/components/FeaturesSection";
 import { TechStackSection } from "@/components/TechStackSection";
 import { HowItWorksSection } from "@/components/HowItWorksSection";
 import { TestimonialsSection } from "@/components/TestimonialsSection";
+import { PricingSection } from "@/components/PricingSection";
 import { CTASection } from "@/components/CTASection";
 import { Footer } from "@/components/Footer";
 import { AuraBackground } from "@/components/AuraBackground";
@@ -35,6 +36,7 @@ export default function Home() {
         <FeaturesSection />
         <TechStackSection />
         <HowItWorksSection />
+        <PricingSection />
         <TestimonialsSection />
         <CTASection />
         <Footer />
@@ -42,4 +44,3 @@ export default function Home() {
     </div>
   );
 }
-

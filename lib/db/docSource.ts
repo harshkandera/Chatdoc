@@ -98,8 +98,25 @@ export async function updateDocSourceStatus(
   // FIX #4: Use transaction for critical status updates
   // Ensures either all updates happen or none do
   return await prisma.$transaction(async (tx) => {
-    return tx.docSource.update({
-      where: { id },
+
+    // GUARD: If new status is NOT a restart (pending/scraping),
+    // prevent overwriting terminal states (ready/error).
+
+    const isRestart = status === "pending" ;
+
+    // Use updateMany to apply the condition atomically
+    await tx.docSource.updateMany({
+      where: {
+        id,
+        ...(isRestart
+          ? {} // If restarting, allow any previous status
+          : {
+              // If not restarting, forbid overwriting terminal states
+              status: {
+                notIn: ["ready", "error"],
+              },
+            }),
+      },
       data: {
         status,
         statusMessage: options?.message ?? null,
@@ -119,6 +136,9 @@ export async function updateDocSourceStatus(
         }),
       },
     });
+
+    // Return the updated (or current) record
+    return await tx.docSource.findUnique({ where: { id } });
   });
 }
 

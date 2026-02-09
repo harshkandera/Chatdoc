@@ -4,9 +4,11 @@ import Link from "next/link";
 import { FileText, ExternalLink, Loader2, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useDocSourceStatus } from "@/lib/hooks/useDocSourceStatus";
 
 interface WorkspaceCardProps {
   id: string;
+  docSourceId: string;
   name: string;
   productName: string;
   rootUrl: string;
@@ -24,17 +26,49 @@ const isIndexingStatus = (status: string) =>
 
 export function WorkspaceCard({
   id,
+  docSourceId,
   name,
   productName,
   rootUrl,
-  status,
-  statusMessage,
-  documentCount = 0,
-  chunkCount = 0,
+  status: initialStatus,
+  statusMessage: initialStatusMessage,
+  documentCount: initialDocumentCount = 0,
+  chunkCount: initialChunkCount = 0,
   lastIndexedAt,
   onStartIndexing,
 }: WorkspaceCardProps) {
-  const statusConfig: Record<string, { label: string; color: string; bgColor: string; borderColor: string }> = {
+  // Use polling hook for real-time status
+  const {
+    status: dynamicStatus,
+    statusMessage: dynamicStatusMessage,
+    documentCount: dynamicDocumentCount,
+    chunkCount: dynamicChunkCount,
+    isLoading,
+    startPolling,
+  } = useDocSourceStatus(docSourceId); // Use docSourceId (derived from props/workspace)
+
+  // Determine effective values (prefer dynamic if available/loaded, else initial)
+  // Logic: Only use dynamic values if they are not null (meaning hook has fetched data)
+  const status = dynamicStatus || initialStatus;
+  const statusMessage = dynamicStatusMessage || initialStatusMessage;
+  const documentCount = dynamicDocumentCount ?? initialDocumentCount;
+  const chunkCount = dynamicChunkCount ?? initialChunkCount;
+
+  // Handler to trigger optimistic polling + API call
+  const handleStartIndexing = async () => {
+    // 1. Immediately start polling (optimistic)
+    startPolling();
+
+    // 2. Trigger the actual API call
+    if (onStartIndexing) {
+      onStartIndexing();
+    }
+  };
+
+  const statusConfig: Record<
+    string,
+    { label: string; color: string; bgColor: string; borderColor: string }
+  > = {
     pending: {
       label: "Pending",
       color: "text-yellow-500",
@@ -154,7 +188,7 @@ export function WorkspaceCard({
       )}
 
       {/* Actions */}
-      <div className="mt-auto pt-4 border-t border-white/[0.06] flex gap-2">
+      <div className="mt-auto pt-4 border-t border-white/6 flex gap-2">
         {status === "ready" ? (
           <Button
             asChild
@@ -164,7 +198,7 @@ export function WorkspaceCard({
           </Button>
         ) : status === "error" ? (
           <Button
-            onClick={onStartIndexing}
+            onClick={handleStartIndexing}
             className="flex-1 bg-red-500/20 hover:bg-red-500/30 text-red-400"
           >
             Retry
@@ -179,7 +213,7 @@ export function WorkspaceCard({
           </Button>
         ) : (
           <Button
-            onClick={onStartIndexing}
+            onClick={handleStartIndexing}
             className="flex-1 bg-white/10 hover:bg-white/15 text-white"
           >
             Start Indexing

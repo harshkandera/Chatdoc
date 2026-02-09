@@ -6,6 +6,9 @@ import {
   findOrCreateWorkspace,
 } from "@/lib/db/docSource";
 import { inngest } from "@/lib/inngest/client";
+import { checkDocLimit } from "@/lib/subscription";
+
+export const dynamic = "force-dynamic";
 
 // GET /api/workspaces - List user's workspaces with chats
 export async function GET() {
@@ -56,6 +59,17 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { error: "name and sourceUrl are required" },
       { status: 400 },
+    );
+  }
+
+  // Check subscription limits
+  const { isReached, limit } = await checkDocLimit(userId);
+  if (isReached) {
+    return NextResponse.json(
+      {
+        error: `You have reached the limit of ${limit} document source${limit > 1 ? "s" : ""} for your plan. Please upgrade to add more.`,
+      },
+      { status: 403 },
     );
   }
 

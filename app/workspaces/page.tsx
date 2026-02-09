@@ -115,6 +115,7 @@ export default function WorkspacesPage() {
               <WorkspaceCard
                 key={workspace.id}
                 id={workspace.id}
+                docSourceId={workspace.docSourceId}
                 name={workspace.name}
                 productName={workspace.DocSource.productName}
                 rootUrl={workspace.DocSource.rootUrl}

@@ -5,6 +5,7 @@ import { SearchResult } from "../pinecone";
 import { shouldDecompose } from "./shouldDecompose";
 import { decomposeQuery, DecomposedQuery } from "./decompose";
 import { searchDocs, searchMultiple } from "./search";
+import { getUserSubscription } from "@/lib/subscription";
 import {
   generateAnswer,
   generateCombinedAnswer,
@@ -55,8 +56,13 @@ export async function handleQuery(
     throw new Error("Workspace or DocSource not found");
   }
 
+  // Check subscription for Deep Research access
+  // Note: workspace.userId is available on the workspace object
+  const subscription = await getUserSubscription(workspace.userId);
+  const isPro = subscription?.isActive;
+
   console.log(
-    `[Query] workspaceId=${workspaceId}, docSource=${workspace.DocSource.productName}, status=${workspace.DocSource.status}, chunks=${workspace.DocSource.chunkCount}`,
+    `[Query] workspaceId=${workspaceId}, docSource=${workspace.DocSource.productName}, status=${workspace.DocSource.status}, chunks=${workspace.DocSource.chunkCount}, isPro=${isPro}`,
   );
 
   // Use LangGraph agent if enabled
@@ -89,7 +95,16 @@ export async function handleQuery(
   }
 
   // Legacy handler (fallback)
-  const { decompose, reasons } = shouldDecompose(prompt);
+  let { decompose, reasons } = shouldDecompose(prompt);
+
+  if (decompose && !isPro) {
+    console.log(
+      "   🔒 [handler] Deep Research blocked (Free Plan). Falling back to Standard.",
+    );
+    decompose = false;
+    reasons = ["Free Plan limit"];
+  }
+
   console.log(
     `   📋 [handler +${Date.now() - handlerStart}ms] Query analysis: decompose=${decompose}, reasons=${reasons.join(", ")}`,
   );

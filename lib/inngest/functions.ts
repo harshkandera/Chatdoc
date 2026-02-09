@@ -30,6 +30,24 @@ type ChunkRecord = {
   indexedAt: Date;
 };
 
+// Update DocSource Status function (Event-Driven)
+export const updateDocSourceStatusFunction = inngest.createFunction(
+  { id: "update-docsource-status" },
+  { event: "docsource/status.updated" },
+  async ({ event, step }) => {
+    const { docSourceId, status, message, documentCount, chunkCount } =
+      event.data;
+
+    await step.run("persist-docsource-status", async () => {
+      await updateDocSourceStatus(docSourceId, status as any, {
+        message,
+        documentCount,
+        chunkCount,
+      });
+    });
+  },
+);
+
 // Index DocSource function with individual steps for retry/resume
 export const indexDocSourceFunction = inngest.createFunction(
   {
@@ -38,87 +56,210 @@ export const indexDocSourceFunction = inngest.createFunction(
     concurrency: {
       limit: 2,
     },
+    onFailure: async ({ event, error }) => {
+      const docSourceId = (event as any).data?.docSourceId;
+      if (!docSourceId) {
+        console.error(
+          `[DocSource:Unknown] Failed after retries (no docSourceId):`,
+          error,
+        );
+        return;
+      }
+      console.error(`[DocSource:${docSourceId}] Failed after retries:`, error);
+
+      // Emit failure event instead of direct DB write
+      await inngest.send({
+        name: "docsource/status.updated",
+        data: {
+          docSourceId,
+          status: "error",
+          message: error.message || "Unknown error after retries",
+        },
+      });
+    },
   },
   { event: "docsource/index.requested" },
   async ({ event, step }) => {
     const { docSourceId, productName } = event.data;
 
     try {
-      // Update status BEFORE step (visible during polling)
-      await updateDocSourceStatus(docSourceId, "scraping", {
-        message: "Starting scrape...",
+      // Emit queued/pending status immediately
+      await step.run("emit-queued-status", async () => {
+        await inngest.send({
+          name: "docsource/status.updated",
+          data: {
+            docSourceId,
+            status: "pending", // Use "pending" for DB consistency, message clarifies "queued"
+            message: "Indexing job queued...",
+          },
+        });
+      });
+
+      // Start - Emit "scraping" event
+      await step.run("emit-scraping-status", async () => {
+        await inngest.send({
+          name: "docsource/status.updated",
+          data: {
+            docSourceId,
+            status: "scraping",
+            message: "Starting scrape...",
+          },
+        });
       });
 
       // Step 1: Scrape all pages (auto-retries on failure)
       const pages = await step.run("scrape-pages", async () => {
-        console.log(`[DocSource:${docSourceId}] Starting scrape...`);
-        return await scrapeDocSource(docSourceId);
+        try {
+          console.log(`[DocSource:${docSourceId}] Starting scrape...`);
+          return await scrapeDocSource(docSourceId);
+        } catch (error) {
+          console.error(`[DocSource:${docSourceId}] Scrape failed:`, error);
+          await inngest.send({
+            name: "docsource/status.updated",
+            data: {
+              docSourceId,
+              status: "scraping",
+              message: `Scraping failed, retrying... ${(error as Error).message}`,
+            },
+          });
+          throw error;
+        }
       });
 
-      // Update status between steps
-      await updateDocSourceStatus(docSourceId, "chunking", {
-        message: `Chunking ${pages.length} pages...`,
+      // Emit "chunking" event
+      await step.run("emit-chunking-status", async () => {
+        await inngest.send({
+          name: "docsource/status.updated",
+          data: {
+            docSourceId,
+            status: "chunking",
+            message: `Chunking ${pages.length} pages...`,
+          },
+        });
       });
 
       // Step 2: Chunk content
       const chunks = await step.run("chunk-content", async () => {
-        console.log(
-          `[DocSource:${docSourceId}] Chunking ${pages.length} pages...`,
-        );
-        const pagesTyped = pages as unknown as Page[];
-        return await chunkDocSource(docSourceId, pagesTyped);
+        try {
+          console.log(
+            `[DocSource:${docSourceId}] Chunking ${pages.length} pages...`,
+          );
+          const pagesTyped = pages as unknown as Page[];
+          return await chunkDocSource(docSourceId, pagesTyped);
+        } catch (error) {
+          console.error(`[DocSource:${docSourceId}] Chunking failed:`, error);
+          await inngest.send({
+            name: "docsource/status.updated",
+            data: {
+              docSourceId,
+              status: "chunking",
+              message: `Chunking failed, retrying... ${(error as Error).message}`,
+            },
+          });
+          throw error;
+        }
       });
 
-      // Update status between steps
-      await updateDocSourceStatus(docSourceId, "embedding", {
-        message: `Generating embeddings for ${chunks.length} chunks...`,
+      // Emit "embedding" event
+      await step.run("emit-embedding-status", async () => {
+        await inngest.send({
+          name: "docsource/status.updated",
+          data: {
+            docSourceId,
+            status: "embedding",
+            message: `Generating embeddings for ${chunks.length} chunks...`,
+          },
+        });
       });
 
       // Step 3: Generate embeddings
       const embeddingResult = await step.run(
         "generate-embeddings",
         async () => {
-          console.log(
-            `[DocSource:${docSourceId}] Embedding ${chunks.length} chunks...`,
-          );
-          const chunksTyped = chunks as unknown as ChunkWithMetadata[];
-          return await embedDocSource(docSourceId, productName, chunksTyped);
+          try {
+            console.log(
+              `[DocSource:${docSourceId}] Embedding ${chunks.length} chunks...`,
+            );
+            const chunksTyped = chunks as unknown as ChunkWithMetadata[];
+            return await embedDocSource(docSourceId, productName, chunksTyped);
+          } catch (error) {
+            console.error(
+              `[DocSource:${docSourceId}] Embedding failed:`,
+              error,
+            );
+            await inngest.send({
+              name: "docsource/status.updated",
+              data: {
+                docSourceId,
+                status: "embedding",
+                message: `Embedding failed, retrying... ${(error as Error).message}`,
+              },
+            });
+            throw error;
+          }
         },
       );
 
-      // Update status between steps
-      await updateDocSourceStatus(docSourceId, "storing", {
-        message: `Storing ${embeddingResult.vectors.length} vectors...`,
+      // Emit "storing" event
+      await step.run("emit-storing-status", async () => {
+        await inngest.send({
+          name: "docsource/status.updated",
+          data: {
+            docSourceId,
+            status: "storing",
+            message: `Storing ${embeddingResult.vectors.length} vectors...`,
+          },
+        });
       });
 
       // Step 4: Store in Pinecone + Postgres
       await step.run("store-data", async () => {
-        console.log(
-          `[DocSource:${docSourceId}] Storing ${embeddingResult.vectors.length} vectors...`,
-        );
-        const vectors = embeddingResult.vectors as unknown as {
-          id: string;
-          values: number[];
-          metadata: ChunkMetadata;
-        }[];
-        const chunkRecords =
-          embeddingResult.chunkRecords as unknown as ChunkRecord[];
-        const chunkRecordsWithDates = chunkRecords.map((r) => ({
-          ...r,
-          indexedAt: new Date(r.indexedAt as unknown as string),
-        }));
-        await storeDocSource(
-          docSourceId,
-          vectors,
-          chunkRecordsWithDates,
-          pages.length,
-        );
+        try {
+          console.log(
+            `[DocSource:${docSourceId}] Storing ${embeddingResult.vectors.length} vectors...`,
+          );
+          const vectors = embeddingResult.vectors as unknown as {
+            id: string;
+            values: number[];
+            metadata: ChunkMetadata;
+          }[];
+          const chunkRecords =
+            embeddingResult.chunkRecords as unknown as ChunkRecord[];
+          const chunkRecordsWithDates = chunkRecords.map((r) => ({
+            ...r,
+            indexedAt: new Date(r.indexedAt as unknown as string),
+          }));
+          await storeDocSource(
+            docSourceId,
+            vectors,
+            chunkRecordsWithDates,
+            pages.length,
+          );
+        } catch (error) {
+          console.error(`[DocSource:${docSourceId}] Storing failed:`, error);
+          await inngest.send({
+            name: "docsource/status.updated",
+            data: {
+              docSourceId,
+              status: "storing",
+              message: `Storing failed, retrying... ${(error as Error).message}`,
+            },
+          });
+          throw error;
+        }
       });
 
-      // Ensure "ready" status is visible (in case transaction didn't propagate immediately)
-      await updateDocSourceStatus(docSourceId, "ready", {
-        documentCount: pages.length,
-        chunkCount: chunks.length,
+      // Emit "ready" event
+      await step.run("emit-ready-status", async () => {
+        await inngest.send({
+          name: "docsource/status.updated",
+          data: {
+            docSourceId,
+            status: "ready",
+            documentCount: pages.length,
+            chunkCount: chunks.length,
+          },
+        });
       });
 
       console.log(`[DocSource:${docSourceId}] Indexing complete!`);
@@ -131,32 +272,14 @@ export const indexDocSourceFunction = inngest.createFunction(
     } catch (error) {
       // On final failure (after all retries), set status to error
       console.error(`[DocSource:${docSourceId}] Indexing failed:`, error);
-
-      // FIX #2: Use step.run with guaranteed DB update for error state
-      // This ensures the error status is persisted even if job retries
-      await step.run("set-error-status", async () => {
-        const errorMsg =
-          error instanceof Error ? error.message : "Unknown error";
-        try {
-          await updateDocSourceStatus(docSourceId, "error", {
-            message: errorMsg,
-          });
-          console.log(
-            `[DocSource:${docSourceId}] ✅ Error status persisted to DB`,
-          );
-        } catch (dbError) {
-          console.error(
-            `[DocSource:${docSourceId}] ❌ Failed to update error status in DB:`,
-            dbError,
-          );
-          // Don't throw - let the main error be thrown below
-        }
-      });
-
-      throw error; // Re-throw so Inngest marks as failed
+      // Let Inngest handle retries for standard errors
+      throw error;
     }
   },
 );
 
 // Export all functions for the Inngest serve handler
-export const functions = [indexDocSourceFunction];
+export const functions = [
+  indexDocSourceFunction,
+  updateDocSourceStatusFunction,
+];

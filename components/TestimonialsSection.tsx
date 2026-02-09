@@ -30,6 +30,27 @@ export function TestimonialsSection() {
   return (
     <section className="border-b border-white/5 bg-black py-20 relative">
       <div className="max-w-[1400px] mx-auto px-6">
+        <div className="flex flex-col items-center md:flex-row md:items-end md:justify-between mb-20 gap-8">
+          <div>
+            <div className="flex items-center gap-2 text-[11px] font-mono text-emerald-400 uppercase tracking-widest mb-6">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              Live Feed
+            </div>
+            <h2 className="text-4xl md:text-6xl font-medium tracking-tight text-white leading-none">
+              Client Intel
+            </h2>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-[10px] font-mono text-neutral-400 uppercase tracking-wider backdrop-blur-sm">
+              Fintech
+            </div>
+            <div className="px-4 py-1.5 rounded-full border border-white/10 bg-white/5 text-[10px] font-mono text-neutral-400 uppercase tracking-wider backdrop-blur-sm">
+              B2B
+            </div>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 spotlight-grid">
           {testimonials.map((testimonial, i) => (
             <div
