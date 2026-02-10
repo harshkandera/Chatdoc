@@ -247,7 +247,7 @@ export type DocSourceGroupByOutputType = {
   id: string
   canonicalUrl: string
   rootUrl: string
-  productKey: string | null
+  productKey: string
   productName: string
   docType: string
   version: string | null
@@ -288,7 +288,7 @@ export type DocSourceWhereInput = {
   id?: Prisma.StringFilter<"DocSource"> | string
   canonicalUrl?: Prisma.StringFilter<"DocSource"> | string
   rootUrl?: Prisma.StringFilter<"DocSource"> | string
-  productKey?: Prisma.StringNullableFilter<"DocSource"> | string | null
+  productKey?: Prisma.StringFilter<"DocSource"> | string
   productName?: Prisma.StringFilter<"DocSource"> | string
   docType?: Prisma.StringFilter<"DocSource"> | string
   version?: Prisma.StringNullableFilter<"DocSource"> | string | null
@@ -308,7 +308,7 @@ export type DocSourceOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   canonicalUrl?: Prisma.SortOrder
   rootUrl?: Prisma.SortOrder
-  productKey?: Prisma.SortOrderInput | Prisma.SortOrder
+  productKey?: Prisma.SortOrder
   productName?: Prisma.SortOrder
   docType?: Prisma.SortOrder
   version?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -327,11 +327,11 @@ export type DocSourceOrderByWithRelationInput = {
 export type DocSourceWhereUniqueInput = Prisma.AtLeast<{
   id?: string
   canonicalUrl?: string
+  productKey?: string
   AND?: Prisma.DocSourceWhereInput | Prisma.DocSourceWhereInput[]
   OR?: Prisma.DocSourceWhereInput[]
   NOT?: Prisma.DocSourceWhereInput | Prisma.DocSourceWhereInput[]
   rootUrl?: Prisma.StringFilter<"DocSource"> | string
-  productKey?: Prisma.StringNullableFilter<"DocSource"> | string | null
   productName?: Prisma.StringFilter<"DocSource"> | string
   docType?: Prisma.StringFilter<"DocSource"> | string
   version?: Prisma.StringNullableFilter<"DocSource"> | string | null
@@ -345,13 +345,13 @@ export type DocSourceWhereUniqueInput = Prisma.AtLeast<{
   updatedAt?: Prisma.DateTimeFilter<"DocSource"> | Date | string
   Workspace?: Prisma.WorkspaceListRelationFilter
   Chunk?: Prisma.ChunkListRelationFilter
-}, "id" | "canonicalUrl">
+}, "id" | "canonicalUrl" | "productKey">
 
 export type DocSourceOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   canonicalUrl?: Prisma.SortOrder
   rootUrl?: Prisma.SortOrder
-  productKey?: Prisma.SortOrderInput | Prisma.SortOrder
+  productKey?: Prisma.SortOrder
   productName?: Prisma.SortOrder
   docType?: Prisma.SortOrder
   version?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -377,7 +377,7 @@ export type DocSourceScalarWhereWithAggregatesInput = {
   id?: Prisma.StringWithAggregatesFilter<"DocSource"> | string
   canonicalUrl?: Prisma.StringWithAggregatesFilter<"DocSource"> | string
   rootUrl?: Prisma.StringWithAggregatesFilter<"DocSource"> | string
-  productKey?: Prisma.StringNullableWithAggregatesFilter<"DocSource"> | string | null
+  productKey?: Prisma.StringWithAggregatesFilter<"DocSource"> | string
   productName?: Prisma.StringWithAggregatesFilter<"DocSource"> | string
   docType?: Prisma.StringWithAggregatesFilter<"DocSource"> | string
   version?: Prisma.StringNullableWithAggregatesFilter<"DocSource"> | string | null
@@ -395,7 +395,7 @@ export type DocSourceCreateInput = {
   id?: string
   canonicalUrl: string
   rootUrl: string
-  productKey?: string | null
+  productKey: string
   productName: string
   docType?: string
   version?: string | null
@@ -415,7 +415,7 @@ export type DocSourceUncheckedCreateInput = {
   id?: string
   canonicalUrl: string
   rootUrl: string
-  productKey?: string | null
+  productKey: string
   productName: string
   docType?: string
   version?: string | null
@@ -435,7 +435,7 @@ export type DocSourceUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   canonicalUrl?: Prisma.StringFieldUpdateOperationsInput | string
   rootUrl?: Prisma.StringFieldUpdateOperationsInput | string
-  productKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productKey?: Prisma.StringFieldUpdateOperationsInput | string
   productName?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -455,7 +455,7 @@ export type DocSourceUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   canonicalUrl?: Prisma.StringFieldUpdateOperationsInput | string
   rootUrl?: Prisma.StringFieldUpdateOperationsInput | string
-  productKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productKey?: Prisma.StringFieldUpdateOperationsInput | string
   productName?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -475,7 +475,7 @@ export type DocSourceCreateManyInput = {
   id?: string
   canonicalUrl: string
   rootUrl: string
-  productKey?: string | null
+  productKey: string
   productName: string
   docType?: string
   version?: string | null
@@ -493,7 +493,7 @@ export type DocSourceUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   canonicalUrl?: Prisma.StringFieldUpdateOperationsInput | string
   rootUrl?: Prisma.StringFieldUpdateOperationsInput | string
-  productKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productKey?: Prisma.StringFieldUpdateOperationsInput | string
   productName?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -511,7 +511,7 @@ export type DocSourceUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   canonicalUrl?: Prisma.StringFieldUpdateOperationsInput | string
   rootUrl?: Prisma.StringFieldUpdateOperationsInput | string
-  productKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productKey?: Prisma.StringFieldUpdateOperationsInput | string
   productName?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -634,7 +634,7 @@ export type DocSourceCreateWithoutChunkInput = {
   id?: string
   canonicalUrl: string
   rootUrl: string
-  productKey?: string | null
+  productKey: string
   productName: string
   docType?: string
   version?: string | null
@@ -653,7 +653,7 @@ export type DocSourceUncheckedCreateWithoutChunkInput = {
   id?: string
   canonicalUrl: string
   rootUrl: string
-  productKey?: string | null
+  productKey: string
   productName: string
   docType?: string
   version?: string | null
@@ -688,7 +688,7 @@ export type DocSourceUpdateWithoutChunkInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   canonicalUrl?: Prisma.StringFieldUpdateOperationsInput | string
   rootUrl?: Prisma.StringFieldUpdateOperationsInput | string
-  productKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productKey?: Prisma.StringFieldUpdateOperationsInput | string
   productName?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -707,7 +707,7 @@ export type DocSourceUncheckedUpdateWithoutChunkInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   canonicalUrl?: Prisma.StringFieldUpdateOperationsInput | string
   rootUrl?: Prisma.StringFieldUpdateOperationsInput | string
-  productKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productKey?: Prisma.StringFieldUpdateOperationsInput | string
   productName?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -726,7 +726,7 @@ export type DocSourceCreateWithoutWorkspaceInput = {
   id?: string
   canonicalUrl: string
   rootUrl: string
-  productKey?: string | null
+  productKey: string
   productName: string
   docType?: string
   version?: string | null
@@ -745,7 +745,7 @@ export type DocSourceUncheckedCreateWithoutWorkspaceInput = {
   id?: string
   canonicalUrl: string
   rootUrl: string
-  productKey?: string | null
+  productKey: string
   productName: string
   docType?: string
   version?: string | null
@@ -780,7 +780,7 @@ export type DocSourceUpdateWithoutWorkspaceInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   canonicalUrl?: Prisma.StringFieldUpdateOperationsInput | string
   rootUrl?: Prisma.StringFieldUpdateOperationsInput | string
-  productKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productKey?: Prisma.StringFieldUpdateOperationsInput | string
   productName?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -799,7 +799,7 @@ export type DocSourceUncheckedUpdateWithoutWorkspaceInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   canonicalUrl?: Prisma.StringFieldUpdateOperationsInput | string
   rootUrl?: Prisma.StringFieldUpdateOperationsInput | string
-  productKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  productKey?: Prisma.StringFieldUpdateOperationsInput | string
   productName?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.StringFieldUpdateOperationsInput | string
   version?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -948,7 +948,7 @@ export type $DocSourcePayload<ExtArgs extends runtime.Types.Extensions.InternalA
     id: string
     canonicalUrl: string
     rootUrl: string
-    productKey: string | null
+    productKey: string
     productName: string
     docType: string
     version: string | null

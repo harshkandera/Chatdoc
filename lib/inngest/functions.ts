@@ -30,9 +30,18 @@ type ChunkRecord = {
   indexedAt: Date;
 };
 
-// Update DocSource Status function (Event-Driven)
+/* -------------------------------------------------------
+   Status Updater (Single Source of Truth)
+------------------------------------------------------- */
 export const updateDocSourceStatusFunction = inngest.createFunction(
-  { id: "update-docsource-status" },
+  {
+    id: "update-docsource-status",
+    concurrency: {
+      limit: 1,
+      // Keying by ID guarantees that updates for a specific doc happen in order
+      key: "event.data.docSourceId",
+    },
+  },
   { event: "docsource/status.updated" },
   async ({ event, step }) => {
     const { docSourceId, status, message, documentCount, chunkCount } =
@@ -48,25 +57,84 @@ export const updateDocSourceStatusFunction = inngest.createFunction(
   },
 );
 
-// Index DocSource function with individual steps for retry/resume
+/* -------------------------------------------------------
+   Global Cancellation Handler
+------------------------------------------------------- */
+// Handles timeouts and manual cancellations from the dashboard
+export const globalDocSourceCancelledHandler = inngest.createFunction(
+  { id: "docsource-global-cancel-handler" },
+  {
+    event: "inngest/function.cancelled",
+    // FIX: Use endsWith to ignore the app-id prefix (e.g. "chatdoc-")
+    if: "event.data.function_id.endsWith('index-docsource')",
+  },
+  async ({ event, step }) => {
+    // console.log("🚫 Cancellation Handler Triggered:", JSON.stringify(event));
+
+    // Robust ID Extraction: Check inside the nested system event
+    const originalEvent = (event as any).data?.event;
+    const docSourceId =
+      (event as any).data?.docSourceId || originalEvent?.data?.docSourceId;
+
+    if (!docSourceId) {
+      // console.error("❌ CRITICAL: Could not find docSourceId in cancellation event");
+      return;
+    }
+
+    await step.run("emit-cancellation-status", async () => {
+      await inngest.send({
+        name: "docsource/status.updated",
+        data: {
+          docSourceId,
+          status: "error",
+          message: "Indexing cancelled (timeout or manual)",
+        },
+      });
+    });
+  },
+);
+
+/* -------------------------------------------------------
+   Main Indexing Function
+------------------------------------------------------- */
 export const indexDocSourceFunction = inngest.createFunction(
   {
     id: "index-docsource",
-    retries: 3,
+    retries: 2,
     concurrency: {
       limit: 2,
     },
+    // Local failure handler: runs immediately when retries are exhausted
+    cancelOn: [
+      {
+        event: "docsource/index.cancelled",
+        if: "async.data.docSourceId == event.data.docSourceId",
+      },
+    ],
     onFailure: async ({ event, error }) => {
-      const docSourceId = (event as any).data?.docSourceId;
+      // const docSourceId = (event as any).data?.docSourceId;
+
+      console.log(
+        "-----------------------  INNGEST FUNCTION FAILURE--------------  ",
+      );
+
+      console.log("-----------------------  EVENT--------------  ", event);
+
+      console.log("-----------------------  ERROR--------------  ", error);
+
+      const originalEvent = (event as any).data?.event;
+      const docSourceId =
+        (event as any).data?.docSourceId || originalEvent?.data?.docSourceId;
+
       if (!docSourceId) return;
 
-      // 🔥 FIRE-AND-FORGET: Emit failure event
-      // No DB writes here. Safe.
+      // Send to the status updater
       await inngest.send({
-        name: "docsource/index.failed",
+        name: "docsource/status.updated",
         data: {
           docSourceId,
-          message: error.message || "Indexing failed after retries",
+          status: "error",
+          message: error?.message || "Indexing failed after retries",
         },
       });
     },
@@ -82,7 +150,7 @@ export const indexDocSourceFunction = inngest.createFunction(
           name: "docsource/status.updated",
           data: {
             docSourceId,
-            status: "pending", // Use "pending" for DB consistency, message clarifies "queued"
+            status: "pending",
             message: "Indexing job queued...",
           },
         });
@@ -232,25 +300,10 @@ export const indexDocSourceFunction = inngest.createFunction(
       };
     } catch (error) {
       // On final failure (after all retries), Inngest will call onFailure
+      // We must throw here so Inngest knows it failed.
       console.error(`[DocSource:${docSourceId}] Indexing failed:`, error);
       throw error;
     }
-  },
-);
-
-// Dedicated Failure Handler
-// Safely updates DB after max retries
-export const docSourceFailedFunction = inngest.createFunction(
-  { id: "docsource-failed-handler" },
-  { event: "docsource/index.failed" },
-  async ({ event, step }) => {
-    const { docSourceId, message } = event.data;
-
-    await step.run("persist-error-status", async () => {
-      await updateDocSourceStatus(docSourceId, "error", {
-        message,
-      });
-    });
   },
 );
 
@@ -258,5 +311,5 @@ export const docSourceFailedFunction = inngest.createFunction(
 export const functions = [
   indexDocSourceFunction,
   updateDocSourceStatusFunction,
-  docSourceFailedFunction,
+  globalDocSourceCancelledHandler,
 ];

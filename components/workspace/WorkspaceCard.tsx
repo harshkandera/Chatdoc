@@ -149,8 +149,14 @@ export function WorkspaceCard({
       </div>
 
       {/* Status Message */}
-      {isIndexingStatus(status) && statusMessage && (
-        <div className="mb-3 text-xs text-blue-400 truncate">
+      {(isIndexingStatus(status) || status === "error") && statusMessage && (
+        <div
+          title={statusMessage}
+          className={cn(
+            "mb-3 text-xs line-clamp-2",
+            status === "error" ? "text-red-400" : "text-blue-400",
+          )}
+        >
           {statusMessage}
         </div>
       )}
