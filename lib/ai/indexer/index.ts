@@ -5,6 +5,14 @@ import { generateEmbeddings } from "../embeddings";
 import { hashUrl, updateDocSourceStatus } from "@/lib/db/docSource";
 import { nanoid } from "nanoid";
 import { upsertVectors, ChunkMetadata } from "../pinecone";
+import {
+  uploadJSON,
+  downloadJSON,
+  deletePrefix,
+  indexingPrefix,
+  pagesKey,
+  chunksKey,
+} from "@/lib/s3";
 
 export interface IndexProgress {
   stage: "scraping" | "chunking" | "embedding" | "storing" | "complete";
@@ -336,4 +344,168 @@ export async function reindexDocSource(
   await prisma.chunk.deleteMany({ where: { docSourceId } });
 
   return indexDocSource(docSourceId, productName, onProgress);
+}
+
+/* -------------------------------------------------------
+   S3-Backed Pipeline Functions (for Inngest)
+   Each function stores/retrieves intermediate data via S3
+   and returns only small metadata to stay under step limits.
+------------------------------------------------------- */
+
+type Page = { url: string; title: string; content: string; links: string[] };
+
+/**
+ * Step 1: Scrape all pages and store them in S3.
+ * Returns only metadata (pageCount + s3Key).
+ */
+export async function scrapeAndStore(
+  docSourceId: string,
+): Promise<{ pageCount: number; s3Key: string }> {
+  const docSource = await prisma.docSource.findUnique({
+    where: { id: docSourceId },
+  });
+
+  if (!docSource) throw new Error("DocSource not found");
+
+  // Scrape main page to get all doc links
+  const mainPage = await scrapePage(docSource.rootUrl);
+  const allLinks = [docSource.rootUrl, ...mainPage.links];
+  const uniqueLinks = [...new Set(allLinks)].slice(0, 100);
+
+  // Scrape all pages
+  const pages = await scrapePages(uniqueLinks);
+
+  // Store in S3
+  const key = pagesKey(docSourceId);
+  await uploadJSON(key, pages);
+
+  return { pageCount: pages.length, s3Key: key };
+}
+
+/**
+ * Step 2: Fetch pages from S3, chunk them, store chunks in S3.
+ * Returns only metadata (chunkCount + s3Key).
+ */
+export async function chunkAndStore(
+  docSourceId: string,
+  pageS3Key: string,
+): Promise<{ chunkCount: number; s3Key: string }> {
+  // Download pages from S3
+  const pages = await downloadJSON<Page[]>(pageS3Key);
+
+  // Chunk all pages
+  const chunks = await chunkPages(pages);
+
+  // Store chunks in S3
+  const key = chunksKey(docSourceId);
+  await uploadJSON(key, chunks);
+
+  return { chunkCount: chunks.length, s3Key: key };
+}
+
+/**
+ * Step 3: Process a batch of chunks — embed and store directly to Pinecone + Postgres.
+ * Returns only the count of vectors stored.
+ */
+export async function embedAndStoreBatch(
+  docSourceId: string,
+  productName: string,
+  chunkS3Key: string,
+  batchIndex: number,
+  batchSize: number,
+): Promise<{ vectorCount: number; isLastBatch: boolean }> {
+  // Download all chunks from S3
+  const allChunks = await downloadJSON<ChunkWithMetadata[]>(chunkS3Key);
+
+  // Slice the batch
+  const start = batchIndex * batchSize;
+  const end = Math.min(start + batchSize, allChunks.length);
+  const batch = allChunks.slice(start, end);
+  const isLastBatch = end >= allChunks.length;
+
+  if (batch.length === 0) {
+    return { vectorCount: 0, isLastBatch: true };
+  }
+
+  const indexedAt = new Date();
+  const indexedAtStr = indexedAt.toISOString();
+
+  // Generate embeddings
+  const embeddings = await generateEmbeddings(batch.map((c) => c.content));
+
+  const vectors: { id: string; values: number[]; metadata: ChunkMetadata }[] =
+    [];
+  const chunkRecords: {
+    id: string;
+    docSourceId: string;
+    content: string;
+    url: string;
+    urlHash: string;
+    title: string;
+    section: string;
+    chunkIndex: number;
+    headings: string;
+    hasCode: boolean;
+    codeLanguages: string[];
+    wordCount: number;
+    vectorId: string;
+    indexedAt: Date;
+  }[] = [];
+
+  for (let j = 0; j < batch.length; j++) {
+    const chunk = batch[j];
+    const vectorId = nanoid();
+    const chunkId = nanoid();
+    const urlHash = hashUrl(chunk.metadata.url);
+
+    vectors.push({
+      id: vectorId,
+      values: embeddings[j],
+      metadata: {
+        docSourceId,
+        content: chunk.content,
+        url: chunk.metadata.url,
+        urlHash,
+        title: chunk.metadata.title,
+        section: chunk.metadata.section || "General",
+        chunkIndex: chunk.index,
+        productName,
+        indexedAt: indexedAtStr,
+      },
+    });
+
+    chunkRecords.push({
+      id: chunkId,
+      docSourceId,
+      content: chunk.content,
+      url: chunk.metadata.url,
+      urlHash,
+      title: chunk.metadata.title,
+      section: chunk.metadata.section || "General",
+      chunkIndex: chunk.index,
+      headings: chunk.metadata.headings || "",
+      hasCode: chunk.metadata.hasCode,
+      codeLanguages: chunk.metadata.codeLanguages,
+      wordCount: chunk.metadata.wordCount,
+      vectorId,
+      indexedAt,
+    });
+  }
+
+  // Store vectors in Pinecone (batch of 100)
+  for (let i = 0; i < vectors.length; i += 100) {
+    await upsertVectors(vectors.slice(i, i + 100));
+  }
+
+  // Store chunk records in Postgres
+  await prisma.chunk.createMany({ data: chunkRecords });
+
+  return { vectorCount: vectors.length, isLastBatch };
+}
+
+/**
+ * Cleanup: Remove all temporary S3 objects for a docSource.
+ */
+export async function cleanupS3(docSourceId: string): Promise<void> {
+  await deletePrefix(indexingPrefix(docSourceId));
 }

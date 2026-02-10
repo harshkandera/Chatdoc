@@ -1,12 +1,12 @@
 import { GoogleGenAI } from "@google/genai";
 import { OpenAIEmbeddings } from "@langchain/openai";
+import { traceable } from "langsmith/traceable";
 
 // Choose embedding provider based on environment
 // NOTE: Pinecone index is configured with 768 dimensions
 
 const EMBEDDING_PROVIDER = process.env.EMBEDDING_PROVIDER || "gemini";
-const EMBEDDING_DIMENSION = 768; 
-
+const EMBEDDING_DIMENSION = 768;
 
 // Initialize Google GenAI client
 const googleAI = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
@@ -18,30 +18,34 @@ const openaiEmbeddings = new OpenAIEmbeddings({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
-
 // Generate embedding using Google GenAI directly (supports outputDimensionality)
-async function generateGeminiEmbedding(text: string): Promise<number[]> {
-  const response = await googleAI.models.embedContent({
-    model: "gemini-embedding-001",
-    contents: text,
-    config: {
-      outputDimensionality: EMBEDDING_DIMENSION,
-    },
-  });
-  return response.embeddings?.[0]?.values ?? [];
-}
-
+// Wrapped with traceable so LangSmith can track these calls
+const generateGeminiEmbedding = traceable(
+  async (text: string): Promise<number[]> => {
+    const response = await googleAI.models.embedContent({
+      model: "gemini-embedding-001",
+      contents: text,
+      config: {
+        outputDimensionality: EMBEDDING_DIMENSION,
+      },
+    });
+    return response.embeddings?.[0]?.values ?? [];
+  },
+  { name: "gemini-embedding", run_type: "embedding" },
+);
 
 // Generate multiple embeddings using Google GenAI
-async function generateGeminiEmbeddings(texts: string[]): Promise<number[][]> {
-  const embeddings: number[][] = [];
-  for (const text of texts) {
-    const embedding = await generateGeminiEmbedding(text);
-    embeddings.push(embedding);
-  }
-  return embeddings;
-}
-
+const generateGeminiEmbeddings = traceable(
+  async (texts: string[]): Promise<number[][]> => {
+    const embeddings: number[][] = [];
+    for (const text of texts) {
+      const embedding = await generateGeminiEmbedding(text);
+      embeddings.push(embedding);
+    }
+    return embeddings;
+  },
+  { name: "gemini-embeddings-batch", run_type: "embedding" },
+);
 
 // Main export: generate a single embedding
 export async function generateEmbedding(text: string): Promise<number[]> {

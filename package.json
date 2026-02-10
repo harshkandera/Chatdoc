@@ -12,6 +12,7 @@
   "dependencies": {
     "@ai-sdk/groq": "^3.0.22",
     "@ai-sdk/react": "^3.0.79",
+    "@aws-sdk/client-s3": "^3.986.0",
     "@clerk/nextjs": "^6.36.7",
     "@google/genai": "^1.40.0",
     "@google/generative-ai": "^0.24.1",
