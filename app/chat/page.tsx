@@ -155,7 +155,7 @@ function ChatContent() {
     return <WorkspacePanel />;
   }
 
-  // Loading state while auto-redirecting
+  //// Loading state while auto-redirecting
   if (isInitializing) {
     return (
       <div className="flex flex-col h-full items-center justify-center">
