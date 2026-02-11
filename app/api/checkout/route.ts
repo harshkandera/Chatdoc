@@ -1,4 +1,4 @@
-import { Polar } from "@polar-sh/sdk";
+import { polar } from "@/lib/polar";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
@@ -9,11 +9,6 @@ export async function GET(request: Request) {
   if (!userId || !user) {
     return NextResponse.redirect(new URL("/sign-in", request.url));
   }
-
-  const polar = new Polar({
-    accessToken: process.env.POLAR_ACCESS_TOKEN!,
-    server: process.env.NODE_ENV === "development" ? "sandbox" : "production",
-  });
 
   const priceId = process.env.NEXT_PUBLIC_POLAR_PRICE_ID;
 
@@ -27,11 +22,12 @@ export async function GET(request: Request) {
 
     // Create checkout session with user details
     const result = await polar.checkouts.create({
-      products: [priceId], // Assuming env var holds Product ID
+      products: [priceId],
       successUrl,
-      customerEmail: user.emailAddresses[0]?.emailAddress, // Pre-fill email
+      customerEmail: user.emailAddresses[0]?.emailAddress,
+      externalCustomerId: userId, // Links Polar customer → Clerk userId
       metadata: {
-        userId: userId, // Pass userId for webhook reconciliation
+        userId: userId,
       },
       // allowDiscountCodes: true,
     });

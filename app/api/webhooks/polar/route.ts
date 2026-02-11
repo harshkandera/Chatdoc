@@ -10,56 +10,112 @@ export const POST = Webhooks({
 
     try {
       switch (type) {
-        case "subscription.created":
-        case "subscription.updated":
-        case "subscription.active": // Grant Access
-          {
-            const customerId = data.customer_id;
-            const email = data.user?.email || data.customer?.email;
+        // --- Order created (fires after successful checkout) ---
+        case "order.created": {
+          const customerId = data.customer_id || data.customer?.id;
+          const externalId = data.customer?.external_id; // Clerk userId
+          const email =
+            data.customer?.email || data.user?.email || data.customer_email;
 
-            if (email) {
-              await prisma.user.update({
-                where: { email },
-                data: {
-                  subscriptionId: data.id,
-                  customerId: customerId,
-                  status:
-                    type === "subscription.active"
-                      ? "active"
-                      : data.status || "free",
-                  currentPeriodEnd: data.current_period_end
-                    ? new Date(data.current_period_end)
-                    : undefined,
-                  variantId: data.product_price_id,
-                },
-              });
-            } else if (customerId) {
-              // Fallback: try to find by customerId if we already have it linked
-              try {
-                await prisma.user.update({
-                  where: { customerId },
-                  data: {
-                    subscriptionId: data.id,
-                    status:
-                      type === "subscription.active"
-                        ? "active"
-                        : data.status || "free",
-                    currentPeriodEnd: data.current_period_end
-                      ? new Date(data.current_period_end)
-                      : undefined,
-                    variantId: data.product_price_id,
-                  },
-                });
-              } catch {
-                // Ignore if not found
-              }
-            }
+          // Try to find user by externalId (Clerk userId) first, then email
+          const whereClause = externalId
+            ? { id: externalId }
+            : email
+              ? { email }
+              : null;
+
+          if (whereClause && customerId) {
+            await prisma.user.update({
+              where: whereClause,
+              data: {
+                customerId,
+                subscriptionId: data.subscription_id || data.subscription?.id,
+                status: "active",
+                currentPeriodEnd: data.subscription?.current_period_end
+                  ? new Date(data.subscription.current_period_end)
+                  : undefined,
+                variantId: data.product_price_id,
+              },
+            });
+            console.log(
+              `[Polar Webhook] order.created → user updated (customerId: ${customerId})`,
+            );
           }
           break;
+        }
+
+        // --- Checkout completed (backup for order.created) ---
+        case "checkout.updated": {
+          if (data.status !== "succeeded") break;
+
+          const customerId = data.customer_id || data.customer?.id;
+          const externalId = data.customer_external_id || data.metadata?.userId;
+          const email = data.customer_email;
+
+          const whereClause = externalId
+            ? { id: externalId }
+            : email
+              ? { email }
+              : null;
+
+          if (whereClause && customerId) {
+            // Only set customerId — subscription events handle the rest
+            await prisma.user.update({
+              where: whereClause,
+              data: { customerId },
+            });
+            console.log(
+              `[Polar Webhook] checkout.updated → customerId saved (${customerId})`,
+            );
+          }
+          break;
+        }
+
+        // --- Subscription lifecycle ---
+        case "subscription.created":
+        case "subscription.updated":
+        case "subscription.active": {
+          const customerId = data.customer_id;
+          // Polar puts Clerk userId in metadata.userId (set during checkout)
+          // or in customer.external_id (if customerExternalId was set)
+          const externalId =
+            data.metadata?.userId || data.customer?.external_id;
+          const email = data.user?.email || data.customer?.email;
+
+          // Try externalId (Clerk userId) → email → customerId
+          const whereClause = externalId
+            ? { id: externalId }
+            : email
+              ? { email }
+              : customerId
+                ? { customerId }
+                : null;
+
+          if (whereClause) {
+            await prisma.user.update({
+              where: whereClause,
+              data: {
+                subscriptionId: data.id,
+                customerId: customerId,
+                status:
+                  type === "subscription.active"
+                    ? "active"
+                    : data.status || "free",
+                currentPeriodEnd: data.current_period_end
+                  ? new Date(data.current_period_end)
+                  : undefined,
+                variantId: data.price_id || data.product_price_id,
+              },
+            });
+            console.log(
+              `[Polar Webhook] ${type} → user updated (customerId: ${customerId})`,
+            );
+          }
+          break;
+        }
 
         case "subscription.revoked":
         case "subscription.canceled":
-          // Revoke access
           await prisma.user.updateMany({
             where: { subscriptionId: data.id },
             data: {

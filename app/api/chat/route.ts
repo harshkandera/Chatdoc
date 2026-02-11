@@ -1,10 +1,11 @@
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@clerk/nextjs/server";
 import { createChat } from "@/lib/chat/createChat";
 import { storeMessage } from "@/lib/chat/storeMessage";
 import { prisma } from "@/lib/db/prisma";
 import { handleQuery } from "@/lib/ai/query/handler";
 import { ModelProvider } from "@/lib/ai/models";
 import { ensureUser } from "@/lib/db/user";
+import { polar } from "@/lib/polar";
 
 export async function POST(req: Request) {
   const requestStart = Date.now();
@@ -133,6 +134,35 @@ export async function POST(req: Request) {
     console.log(
       `🏁 [+${Date.now() - requestStart}ms] ========== CHAT REQUEST COMPLETE ==========\n`,
     );
+
+    // Ingest meter event to Polar for usage tracking
+    try {
+      const dbUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { customerId: true },
+      });
+
+      if (dbUser?.customerId) {
+        await polar.events.ingest({
+          events: [
+            {
+              name: "chat_query",
+              externalCustomerId: dbUser.customerId,
+              metadata: {
+                workspaceId: activeWorkspaceId,
+                provider: provider,
+                latencyMs: latencyMs.toString(),
+              },
+            },
+          ],
+        });
+        console.log(
+          `📊 [Polar] Meter event ingested for customer ${dbUser.customerId}`,
+        );
+      }
+    } catch (meterError) {
+      console.error("[Polar] Failed to ingest meter event:", meterError);
+    }
 
     return Response.json({
       chatId: activeChatId,
