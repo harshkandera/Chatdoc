@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://chatdoc.ai";
+const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://thechatdoc.online";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -38,6 +38,9 @@ export const metadata: Metadata = {
   authors: [{ name: "ChatDoc" }],
   creator: "ChatDoc",
   publisher: "ChatDoc",
+  verification: {
+    google: "wsO-pDAJdTQCwDY4dFg3KJuvia8DlhdTZUQV0XIiiRQ",
+  },
   openGraph: {
     type: "website",
     locale: "en_US",
@@ -48,7 +51,7 @@ export const metadata: Metadata = {
       "Chat directly with verified technical documentation. Get accurate, sourced answers from your indexed docs.",
     images: [
       {
-        url: "/og-image.png",
+        url: `${siteUrl}/og-image.png`,
         width: 1200,
         height: 630,
         alt: "ChatDoc — AI-Powered Documentation Chat",
@@ -60,7 +63,7 @@ export const metadata: Metadata = {
     title: "ChatDoc — AI-Powered Documentation Chat",
     description:
       "Chat directly with verified technical documentation. Get accurate, sourced answers from your indexed docs.",
-    images: ["/og-image.png"],
+    images: [`${siteUrl}/og-image.png`],
   },
   robots: {
     index: true,
