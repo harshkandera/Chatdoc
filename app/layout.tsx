@@ -54,7 +54,7 @@ export const metadata: Metadata = {
       "Chat directly with verified technical documentation. Get accurate, sourced answers from your indexed docs.",
     images: [
       {
-        url: `${siteUrl}/api/og`,
+        url: `${siteUrl}/api/og?title=ChatDoc`,
         width: 1200,
         height: 630,
         alt: "ChatDoc — AI-Powered Documentation Chat",
@@ -66,7 +66,7 @@ export const metadata: Metadata = {
     title: "ChatDoc — AI-Powered Documentation Chat",
     description:
       "Chat directly with verified technical documentation. Get accurate, sourced answers from your indexed docs.",
-    images: [`${siteUrl}/api/og`],
+    images: [`${siteUrl}/api/og?title=ChatDoc`],
   },
   robots: {
     index: true,

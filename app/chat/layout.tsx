@@ -10,6 +10,14 @@ export const metadata: Metadata = {
     title: "Chat | ChatDoc",
     description:
       "Chat with your indexed documentation. AI-powered answers with sources.",
+    images: [
+      {
+        url: "/api/og?title=Chat with Docs",
+        width: 1200,
+        height: 630,
+        alt: "Chat | ChatDoc",
+      },
+    ],
   },
   robots: {
     index: false,

@@ -19,6 +19,14 @@ export const metadata: Metadata = {
     title: "ChatDoc — Chat with Your Documentation Using AI",
     description:
       "Index any documentation and get instant AI-powered answers. Accurate, sourced, and verified.",
+    images: [
+      {
+        url: "/api/og?title=Chat with Your Documentation",
+        width: 1200,
+        height: 630,
+        alt: "ChatDoc — Chat with Your Documentation Using AI",
+      },
+    ],
   },
 };
 
