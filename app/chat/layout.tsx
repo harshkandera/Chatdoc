@@ -3,9 +3,18 @@ import { ChatSidebar } from "@/components/chat";
 import { MobileWarning } from "@/components/MobileWarning";
 
 export const metadata: Metadata = {
-  title: "Chat | ChatDoc - AI-Powered Documentation Chat",
+  title: "Chat",
   description:
-    "Chat directly with verified technical documentation. Get accurate, sourced answers from your indexed docs.",
+    "Chat with your indexed documentation. Ask questions and get AI-powered answers with sources.",
+  openGraph: {
+    title: "Chat | ChatDoc",
+    description:
+      "Chat with your indexed documentation. AI-powered answers with sources.",
+  },
+  robots: {
+    index: false,
+    follow: false,
+  },
 };
 
 export default function ChatLayout({

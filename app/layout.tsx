@@ -13,10 +13,66 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://chatdoc.ai";
+
 export const metadata: Metadata = {
-  title: "ChatDoc - AI-Powered Documentation Chat",
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: "ChatDoc — AI-Powered Documentation Chat",
+    template: "%s | ChatDoc",
+  },
   description:
-    "Chat directly with verified technical documentation. Get accurate, sourced answers from your indexed docs.",
+    "Chat directly with verified technical documentation. Get accurate, sourced answers from your indexed docs using AI-powered RAG.",
+  keywords: [
+    "AI documentation chat",
+    "chat with docs",
+    "AI-powered documentation assistant",
+    "documentation search AI",
+    "technical docs chatbot",
+    "indexed documentation chat",
+    "ChatDoc AI",
+    "RAG documentation tool",
+    "AI doc search",
+    "developer documentation assistant",
+  ],
+  authors: [{ name: "ChatDoc" }],
+  creator: "ChatDoc",
+  publisher: "ChatDoc",
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: siteUrl,
+    siteName: "ChatDoc",
+    title: "ChatDoc — AI-Powered Documentation Chat",
+    description:
+      "Chat directly with verified technical documentation. Get accurate, sourced answers from your indexed docs.",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "ChatDoc — AI-Powered Documentation Chat",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "ChatDoc — AI-Powered Documentation Chat",
+    description:
+      "Chat directly with verified technical documentation. Get accurate, sourced answers from your indexed docs.",
+    images: ["/og-image.png"],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
 };
 
 export default function RootLayout({

@@ -53,7 +53,7 @@ export function Footer() {
               </li>
             </ul>
           </div>
-
+          {/* 
           <div>
             <h4 className="text-[10px] font-mono uppercase text-neutral-500 mb-4">
               Resources
@@ -75,7 +75,7 @@ export function Footer() {
                 </Link>
               </li>
             </ul>
-          </div>
+          </div> */}
 
           <div>
             <h4 className="text-[10px] font-mono uppercase text-neutral-500 mb-4">
@@ -83,18 +83,27 @@ export function Footer() {
             </h4>
             <ul className="space-y-2 text-sm text-neutral-400">
               <li>
-                <Link href="#" className="hover:text-white transition-colors">
+                <Link
+                  href="https://x.com/Harsh30721625"
+                  className="hover:text-white transition-colors"
+                >
                   Twitter / X
                 </Link>
               </li>
               <li>
-                <Link href="#" className="hover:text-white transition-colors">
+                <Link
+                  href="https://github.com/harshkandera/"
+                  className="hover:text-white transition-colors"
+                >
                   GitHub
                 </Link>
               </li>
               <li>
-                <Link href="#" className="hover:text-white transition-colors">
-                  Discord
+                <Link
+                  href="https://www.linkedin.com/in/harsh-kandera-b22805238/"
+                  className="hover:text-white transition-colors"
+                >
+                  LinkedIn
                 </Link>
               </li>
             </ul>
@@ -107,6 +116,9 @@ export function Footer() {
             </p>
             <p className="text-[10px] font-mono uppercase text-neutral-600 mt-1">
               © 2026 ChatDoc. All rights reserved.
+            </p>
+            <p className="text-[10px] font-mono uppercase text-neutral-600 mt-1">
+              Developed by Harsh Kandera
             </p>
           </div>
         </div>
