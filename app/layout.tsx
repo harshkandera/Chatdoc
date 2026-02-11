@@ -3,6 +3,7 @@ import { Inter, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Analytics } from "@vercel/analytics/next";
+
 const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
@@ -13,10 +14,12 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://www.thechatdoc.online";
+const siteUrl =
+  process.env.NEXT_PUBLIC_APP_URL || "https://www.thechatdoc.online";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
+
   title: {
     default: "ChatDoc — AI-Powered Documentation Chat",
     template: "%s | ChatDoc",
@@ -97,7 +100,7 @@ export default function RootLayout({
               colorPrimary: "#6c47ff",
               colorDanger: "#ef4444",
               borderRadius: "0.75rem",
-              fontSize: "0.875rem", // 🔥 smaller overall UI
+              fontSize: "0.875rem",
             },
             elements: {
               card: "bg-black border border-white/10 shadow-xl",
