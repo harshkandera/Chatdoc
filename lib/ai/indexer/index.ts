@@ -509,3 +509,209 @@ export async function embedAndStoreBatch(
 export async function cleanupS3(docSourceId: string): Promise<void> {
   await deletePrefix(indexingPrefix(docSourceId));
 }
+
+/**
+ * Smart Re-Index: Scrape all pages, compare content hashes, and only
+ * re-process pages that actually changed. Returns metadata about the diff.
+ */
+export async function smartScrapeAndStore(docSourceId: string): Promise<{
+  pageCount: number;
+  changedCount: number;
+  unchangedCount: number;
+  s3Key: string;
+  failedUrls: string[];
+}> {
+  const { createHash } = await import("crypto");
+
+  const docSource = await prisma.docSource.findUnique({
+    where: { id: docSourceId },
+  });
+
+  if (!docSource) throw new Error("DocSource not found");
+
+  // Get existing content hashes from DB (grouped by URL)
+  const existingChunks = await prisma.chunk.findMany({
+    where: { docSourceId },
+    select: { url: true, contentHash: true, vectorId: true },
+  });
+
+  // Build a map of URL → { hashes, vectorIds } for existing data
+  const existingByUrl = new Map<
+    string,
+    { hashes: Set<string>; vectorIds: string[] }
+  >();
+  for (const chunk of existingChunks) {
+    const entry = existingByUrl.get(chunk.url) || {
+      hashes: new Set<string>(),
+      vectorIds: [],
+    };
+    if (chunk.contentHash) entry.hashes.add(chunk.contentHash);
+    entry.vectorIds.push(chunk.vectorId);
+    existingByUrl.set(chunk.url, entry);
+  }
+
+  // Scrape main page to get all doc links
+  const mainPage = await scrapePage(docSource.rootUrl);
+  const allLinks = [docSource.rootUrl, ...mainPage.links];
+  const uniqueLinks = [...new Set(allLinks)].slice(0, 100);
+
+  // Scrape all pages
+  const allPages = await scrapePages(uniqueLinks);
+  const failedUrls = uniqueLinks.filter(
+    (url) => !allPages.some((p) => p.url === url),
+  );
+
+  // Compare hashes to find changed pages
+  const changedPages: Page[] = [];
+  let unchangedCount = 0;
+
+  for (const page of allPages) {
+    const contentHash = createHash("sha256").update(page.content).digest("hex");
+    const existing = existingByUrl.get(page.url);
+
+    if (existing && existing.hashes.has(contentHash)) {
+      // Content unchanged — skip
+      unchangedCount++;
+    } else {
+      // Content changed or new page — needs re-processing
+      changedPages.push(page);
+
+      // Delete old vectors + chunks for this URL if they exist
+      if (existing) {
+        // Delete Pinecone vectors by ID
+        const { pineconeIndex } = await import("../pinecone");
+        if (existing.vectorIds.length > 0) {
+          await pineconeIndex.deleteMany(existing.vectorIds);
+        }
+        // Delete old chunks from DB
+        await prisma.chunk.deleteMany({
+          where: { docSourceId, url: page.url },
+        });
+      }
+    }
+  }
+
+  // Store changed pages in S3 (only these need re-embedding)
+  const key = pagesKey(docSourceId);
+  await uploadJSON(key, changedPages);
+
+  // Update DocSource with failed URLs
+  await prisma.docSource.update({
+    where: { id: docSourceId },
+    data: { failedUrls },
+  });
+
+  return {
+    pageCount: allPages.length,
+    changedCount: changedPages.length,
+    unchangedCount,
+    s3Key: key,
+    failedUrls,
+  };
+}
+
+/**
+ * Enhanced embedAndStoreBatch that includes contentHash for smart re-indexing.
+ */
+export async function embedAndStoreBatchWithHash(
+  docSourceId: string,
+  productName: string,
+  chunkS3Key: string,
+  batchIndex: number,
+  batchSize: number,
+): Promise<{ vectorCount: number; isLastBatch: boolean }> {
+  const { createHash } = await import("crypto");
+
+  // Download all chunks from S3
+  const allChunks = await downloadJSON<ChunkWithMetadata[]>(chunkS3Key);
+
+  // Slice the batch
+  const start = batchIndex * batchSize;
+  const end = Math.min(start + batchSize, allChunks.length);
+  const batch = allChunks.slice(start, end);
+  const isLastBatch = end >= allChunks.length;
+
+  if (batch.length === 0) {
+    return { vectorCount: 0, isLastBatch: true };
+  }
+
+  const indexedAt = new Date();
+  const indexedAtStr = indexedAt.toISOString();
+
+  // Generate embeddings
+  const embeddings = await generateEmbeddings(batch.map((c) => c.content));
+
+  const vectors: { id: string; values: number[]; metadata: ChunkMetadata }[] =
+    [];
+  const chunkRecords: {
+    id: string;
+    docSourceId: string;
+    content: string;
+    url: string;
+    urlHash: string;
+    title: string;
+    section: string;
+    chunkIndex: number;
+    headings: string;
+    hasCode: boolean;
+    codeLanguages: string[];
+    wordCount: number;
+    vectorId: string;
+    indexedAt: Date;
+    contentHash: string;
+  }[] = [];
+
+  for (let j = 0; j < batch.length; j++) {
+    const chunk = batch[j];
+    const vectorId = nanoid();
+    const chunkId = nanoid();
+    const urlHash = hashUrl(chunk.metadata.url);
+    const contentHash = createHash("sha256")
+      .update(chunk.content)
+      .digest("hex");
+
+    vectors.push({
+      id: vectorId,
+      values: embeddings[j],
+      metadata: {
+        docSourceId,
+        content: chunk.content,
+        url: chunk.metadata.url,
+        urlHash,
+        title: chunk.metadata.title,
+        section: chunk.metadata.section || "General",
+        chunkIndex: chunk.index,
+        productName,
+        indexedAt: indexedAtStr,
+      },
+    });
+
+    chunkRecords.push({
+      id: chunkId,
+      docSourceId,
+      content: chunk.content,
+      url: chunk.metadata.url,
+      urlHash,
+      title: chunk.metadata.title,
+      section: chunk.metadata.section || "General",
+      chunkIndex: chunk.index,
+      headings: chunk.metadata.headings || "",
+      hasCode: chunk.metadata.hasCode,
+      codeLanguages: chunk.metadata.codeLanguages,
+      wordCount: chunk.metadata.wordCount,
+      vectorId,
+      indexedAt,
+      contentHash,
+    });
+  }
+
+  // Store vectors in Pinecone (batch of 100)
+  for (let i = 0; i < vectors.length; i += 100) {
+    await upsertVectors(vectors.slice(i, i + 100));
+  }
+
+  // Store chunk records in Postgres
+  await prisma.chunk.createMany({ data: chunkRecords });
+
+  return { vectorCount: vectors.length, isLastBatch };
+}

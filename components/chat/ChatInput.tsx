@@ -1,134 +1,101 @@
 "use client";
 
-import { useRef, KeyboardEvent } from "react";
-import { Paperclip, Sparkles, ImageIcon, Mic, ArrowUp } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  PromptInput,
+  PromptInputBody,
+  PromptInputTextarea,
+  PromptInputSubmit,
+  type PromptInputMessage,
+  usePromptInputAttachments,
+  PromptInputButton,
+} from "@/components/ai-elements/prompt-input";
+import { Paperclip, Mic, ArrowUp } from "lucide-react";
+import { memo } from "react";
+
+// ─── Types ───
 
 interface ChatInputProps {
-  value: string;
-  onChange: (value: string) => void;
-  onSubmit: () => void;
-  isLoading?: boolean;
-  placeholder?: string;
+  onSubmit: (message: PromptInputMessage) => void;
+  status: "streaming" | "submitted" | "ready" | "error";
   disabled?: boolean;
 }
 
+// ─── Helper Components ───
+
+const AttachButton = memo(() => {
+  const { openFileDialog } = usePromptInputAttachments();
+  return (
+    <PromptInputButton
+      onClick={openFileDialog}
+      tooltip="Attach files"
+      variant="ghost"
+      size="icon-sm"
+      className="text-muted-foreground hover:text-foreground"
+    >
+      <Paperclip className="size-4" />
+    </PromptInputButton>
+  );
+});
+
+AttachButton.displayName = "AttachButton";
+
+const VoiceButton = memo(() => {
+  return (
+    <PromptInputButton
+      tooltip="Voice input (coming soon)"
+      variant="ghost"
+      size="icon-sm"
+      className="text-muted-foreground hover:text-foreground"
+      disabled
+    >
+      <Mic className="size-4" />
+    </PromptInputButton>
+  );
+});
+
+VoiceButton.displayName = "VoiceButton";
+
+// ─── Main Component ───
+
 export function ChatInput({
-  value,
-  onChange,
   onSubmit,
-  isLoading = false,
-  placeholder = "Type your prompt here...",
+  status,
   disabled = false,
 }: ChatInputProps) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      if (value.trim() && !isLoading) {
-        onSubmit();
-      }
-    }
-  };
-
-  const actionButtons = [
-    { icon: Paperclip, label: "Attach", onClick: () => {} },
-    // { icon: Sparkles, label: "Think", onClick: () => {} },
-    // { icon: ImageIcon, label: "Edit Image", onClick: () => {} },
-  ];
-
   return (
-    <div className="p-4 flex-shrink-0">
-      <div className="max-w-3xl mx-auto">
-        <div className="relative bg-neutral-900/50 border border-white/[0.08] rounded-2xl backdrop-blur-sm overflow-hidden">
-          {/* Textarea */}
-          <Textarea
-            ref={textareaRef}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              disabled ? "Select a workspace to start chatting..." : placeholder
-            }
-            disabled={isLoading || disabled}
-            className="min-h-[52px] max-h-[200px] resize-none border-0 bg-transparent text-white placeholder:text-neutral-500 focus-visible:ring-0 focus-visible:ring-offset-0 pt-4 pb-14 px-4 text-sm"
-            rows={1}
-          />
-
-          {/* Bottom action bar */}
-          <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between px-3 py-2">
-            {/* Left actions */}
-            <TooltipProvider delayDuration={0}>
-              <div className="flex items-center gap-1">
-                {actionButtons.map((action) => (
-                  <Tooltip key={action.label}>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={action.onClick}
-                        className="text-neutral-400 hover:text-white hover:bg-white/[0.06] gap-1.5 h-8 px-2.5"
-                      >
-                        <action.icon className="w-4 h-4" />
-                        <span className="text-xs">{action.label}</span>
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent
-                      side="top"
-                      className="bg-neutral-800 text-white border-white/10"
-                    >
-                      {action.label}
-                    </TooltipContent>
-                  </Tooltip>
-                ))}
-              </div>
-            </TooltipProvider>
-
-            {/* Right actions */}
-            <div className="flex items-center gap-2">
-              <TooltipProvider delayDuration={0}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="text-neutral-400 hover:text-white hover:bg-white/[0.06] gap-1.5 h-8 px-2.5"
-                    >
-                      <Mic className="w-4 h-4" />
-                      <span className="text-xs">Voice</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent
-                    side="top"
-                    className="bg-neutral-800 text-white border-white/10"
-                  >
-                    Voice input
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-
-              {/* Send button */}
-              <Button
-                type="button"
-                onClick={onSubmit}
-                disabled={!value.trim() || isLoading}
+    <div className="w-full flex justify-center p-4 pb-8 bg-gradient-to-t from-black/80 via-black/50 to-transparent">
+      <div className="pointer-events-auto w-full max-w-3xl">
+        <PromptInput
+          onSubmit={onSubmit}
+          className="bg-black/90 border border-white/[0.06] backdrop-blur-xl rounded-[26px] transition-all overflow-hidden [&_[data-slot=input-group]]:h-auto [&_[data-slot=input-group]]:p-0 **:data-[slot=input-group]:ring-0! **:data-[slot=input-group]:border-white/6! shadow-lg shadow-black/20"
+        >
+          <PromptInputBody className="flex items-center w-full p-1.5 pl-3">
+            <AttachButton />
+            <PromptInputTextarea
+              placeholder={
+                disabled ? "Select a workspace..." : "Type your prompt here..."
+              }
+              disabled={disabled}
+              className="flex-1 min-h-[40px] max-h-[200px] border-none shadow-none focus-visible:ring-0 py-2.5 px-3 bg-transparent text-sm text-zinc-200 placeholder:text-zinc-500"
+            />
+            <div className="flex items-center gap-1.5 pr-1.5">
+              <VoiceButton />
+              <PromptInputSubmit
+                status={status === "streaming" ? "streaming" : "ready"}
+                disabled={disabled}
+                className="rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors group-has-[textarea:not(:placeholder-shown)]/input-group:bg-white group-has-[textarea:not(:placeholder-shown)]/input-group:text-black group-has-[textarea:not(:placeholder-shown)]/input-group:hover:bg-white/90"
                 size="icon-sm"
-                className="rounded-full bg-white hover:bg-neutral-200 text-black disabled:opacity-30 disabled:bg-neutral-600"
               >
-                <ArrowUp className="w-4 h-4" />
-              </Button>
+                <ArrowUp className="size-4" />
+              </PromptInputSubmit>
             </div>
-          </div>
+          </PromptInputBody>
+        </PromptInput>
+
+        <div className="mt-3 text-center">
+          <p className="text-xs text-muted-foreground">
+            AI can make mistakes. Verify important information.
+          </p>
         </div>
       </div>
     </div>

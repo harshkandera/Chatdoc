@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useState, useCallback, Suspense } from "react";
+import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import {
-  ChatHeader,
-  ChatMessages,
-  ChatInput,
-  type Message,
-} from "@/components/chat";
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
+import { ChatHeader } from "@/components/chat/ChatHeader";
+import { ChatMessages } from "@/components/chat/ChatMessages";
+import { ChatInput } from "@/components/chat/ChatInput";
 import { WorkspacePanel } from "@/components/workspace";
 import { Loader2 } from "lucide-react";
-import { nanoid } from "nanoid";
+import { DEFAULT_MODEL_ID } from "@/lib/ai/model-options";
+import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 
 interface Workspace {
   id: string;
@@ -29,36 +29,71 @@ function ChatContent() {
   const workspaceId = searchParams.get("workspace");
   const view = searchParams.get("view");
 
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("chatdoc-1.0");
+  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL_ID);
   const [error, setError] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(!workspaceId && !view);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
 
+  // Render-time state adjustments
+  if (!workspaceId && workspace !== null) {
+    setWorkspace(null);
+  }
+
+  if ((workspaceId || view) && isInitializing) {
+    setIsInitializing(false);
+  }
+
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/chat",
+        body: {
+          workspaceId,
+          modelOptionId: selectedModel,
+        },
+      }),
+    [workspaceId, selectedModel],
+  );
+
+  const { messages, status, sendMessage } = useChat({
+    transport,
+    onError: (err) => {
+      console.error("useChat error:", err);
+      setError(err instanceof Error ? err.message : "An error occurred");
+    },
+  });
+
   // Fetch current workspace data
-  const fetchWorkspace = useCallback(async () => {
-    if (!workspaceId) {
-      setWorkspace(null);
-      return;
-    }
-
-    try {
-      const response = await fetch("/api/workspaces");
-      if (response.ok) {
-        const workspaces = await response.json();
-        const current = workspaces.find((w: Workspace) => w.id === workspaceId);
-        setWorkspace(current || null);
-      }
-    } catch (err) {
-      console.error("Failed to fetch workspace:", err);
-    }
-  }, [workspaceId]);
-
   useEffect(() => {
+    if (!workspaceId) return;
+
+    let isMounted = true;
+
+    const fetchWorkspace = async () => {
+      try {
+        const response = await fetch("/api/workspaces");
+        if (response.ok && isMounted) {
+          const workspaces = await response.json();
+          const current = workspaces.find(
+            (w: Workspace) => w.id === workspaceId,
+          );
+          if (isMounted) {
+            setWorkspace(current || null);
+          }
+        }
+      } catch (err) {
+        if (isMounted) {
+          console.error("Failed to fetch workspace:", err);
+        }
+      }
+    };
+
     fetchWorkspace();
-  }, [fetchWorkspace]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [workspaceId]);
 
   // Auto-redirect to first workspace if none selected and not viewing workspaces
   useEffect(() => {
@@ -84,78 +119,28 @@ function ChatContent() {
         }
       };
       fetchAndRedirect();
-    } else {
-      setIsInitializing(false);
     }
   }, [workspaceId, view, router]);
 
-  const handleSubmit = async () => {
-    if (!input.trim() || isLoading || !workspaceId) return;
-
-    const userMessage: Message = {
-      id: nanoid(),
-      role: "user",
-      content: input.trim(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: userMessage.content,
-          workspaceId,
-          provider: "groq",
-        }),
+  // Handle message submit from PromptInput
+  const handleSubmit = useCallback(
+    (message: PromptInputMessage) => {
+      if (!message.text?.trim() || !workspaceId) return;
+      setError(null);
+      sendMessage({
+        text: message.text,
+        files: message.files,
       });
-
-      const data = await response.json();
-
-      if (data.error) {
-        setError(
-          typeof data.error === "string"
-            ? data.error
-            : JSON.stringify(data.error),
-        );
-        setIsLoading(false);
-        return;
-      }
-
-      // Redirect to the new chat
-      if (data.chatId) {
-        // Dispatch event to update sidebar
-        window.dispatchEvent(new Event("chat-created"));
-
-        router.replace(`/chat/${data.chatId}`);
-      }
-
-      const aiMessage: Message = {
-        id: nanoid(),
-        role: "assistant",
-        content: data.content,
-        sources: data.sources,
-      };
-
-      setMessages((prev) => [...prev, aiMessage]);
-    } catch (err) {
-      console.error("Chat error:", err);
-      setError("Failed to get response. Please try again.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    },
+    [workspaceId, sendMessage, setError],
+  );
 
   // Show WorkspacePanel when view=workspaces
   if (view === "workspaces") {
     return <WorkspacePanel />;
   }
 
-  //// Loading state while auto-redirecting
+  // Loading state while auto-redirecting
   if (isInitializing) {
     return (
       <div className="flex flex-col h-full items-center justify-center">
@@ -181,14 +166,12 @@ function ChatContent() {
           </div>
         )}
 
-        <ChatMessages messages={messages} isLoading={isLoading} />
+        <ChatMessages messages={messages} status={status} />
       </div>
 
       <ChatInput
-        value={input}
-        onChange={setInput}
         onSubmit={handleSubmit}
-        isLoading={isLoading}
+        status={status}
         disabled={!workspaceId}
       />
     </div>

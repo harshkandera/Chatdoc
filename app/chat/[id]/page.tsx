@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db/prisma";
 import ClientPage from "./ClientPage";
 import { notFound, redirect } from "next/navigation";
+import { UIMessage } from "ai";
 
 interface ChatPageProps {
   params: Promise<{ id: string }>;
@@ -67,20 +68,50 @@ export default async function ChatPage({ params }: ChatPageProps) {
     redirect("/sign-in");
   }
 
-  // Double check if chat exists/belongs to user (optional, but good for 404s)
-  // We can let the client component handle the fetch failure or do it here.
-  // Doing it here prevents rendering the shell for invalid chats.
   const chat = await prisma.chat.findUnique({
     where: {
       id,
       userId,
     },
-    select: { id: true },
+    include: {
+      Message: {
+        orderBy: {
+          createdAt: "asc",
+        },
+      },
+      Workspace: {
+        select: {
+          id: true,
+          name: true,
+          docSourceId: true,
+          DocSource: {
+            select: {
+              productName: true,
+              rootUrl: true,
+              status: true,
+              chunkCount: true,
+            },
+          },
+        },
+      },
+    },
   });
 
   if (!chat) {
     notFound();
   }
 
-  return <ClientPage chatId={id} />;
+  // Convert Prisma messages to AI SDK UIMessage format
+  const initialMessages: UIMessage[] = chat.Message.map((msg) => ({
+    id: msg.id,
+    role: msg.role as "user" | "assistant",
+    parts: [{ type: "text", text: msg.content ?? "" }],
+  }));
+
+  return (
+    <ClientPage
+      initialMessages={initialMessages}
+      workspace={chat.Workspace}
+    />
+  );
 }

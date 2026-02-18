@@ -1,17 +1,19 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import {
-  ChatHeader,
-  ChatMessages,
-  ChatInput,
-  type Message,
-} from "@/components/chat";
-import { nanoid } from "nanoid";
+import { useChat } from "@ai-sdk/react";
+import { useParams } from "next/navigation";
+import { useCallback, useMemo, useState } from "react";
+import { ChatHeader } from "@/components/chat/ChatHeader";
+import { ChatInput } from "@/components/chat/ChatInput";
+import { ChatMessages } from "@/components/chat/ChatMessages";
+import { DefaultChatTransport, UIMessage } from "ai";
+import { DEFAULT_MODEL_ID } from "@/lib/ai/model-options";
+import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 
 interface Workspace {
   id: string;
   name: string;
+  docSourceId: string;
   DocSource: {
     productName: string;
     rootUrl: string;
@@ -20,151 +22,114 @@ interface Workspace {
   };
 }
 
-interface ClientPageProps {
-  chatId: string;
-}
-
-export default function ClientPage({ chatId }: ClientPageProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("chatdoc-1.0");
+export default function ClientPage({
+  initialMessages,
+  workspace,
+}: {
+  initialMessages: UIMessage[];
+  workspace?: Workspace | null;
+}) {
+  const params = useParams();
+  const chatId = params.id as string;
   const [error, setError] = useState<string | null>(null);
-  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
-  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL_ID);
 
-  // Fetch workspace data
-  const fetchWorkspace = useCallback(async (wsId: string) => {
-    try {
-      const response = await fetch("/api/workspaces");
-      if (response.ok) {
-        const workspaces = await response.json();
-        const current = workspaces.find((w: Workspace) => w.id === wsId);
-        setWorkspace(current || null);
-      }
-    } catch (err) {
-      console.error("Failed to fetch workspace:", err);
-    }
-  }, []);
+  // Create transport ONCE with stable fields only.
+  // Do NOT put selectedModel in the transport body — useChat captures the
+  // transport on first mount and never re-reads it when it changes, so
+  // updating selectedModel here has zero effect on subsequent requests.
+  // Instead, pass modelOptionId per-request via sendMessage/regenerate body.
 
-  // Load existing chat messages
-  useEffect(() => {
-    const loadChat = async () => {
-      try {
-        const response = await fetch(`/api/chats/${chatId}`);
-        if (response.ok) {
-          const data = await response.json();
-          setWorkspaceId(data.workspaceId);
-
-          // Fetch workspace data
-          if (data.workspaceId) {
-            fetchWorkspace(data.workspaceId);
-          }
-
-          // Convert stored messages to our format
-          if (data.messages) {
-            const loadedMessages: Message[] = data.messages.map(
-              (msg: {
-                id: string;
-                role: "user" | "assistant";
-                content: string;
-              }) => ({
-                id: msg.id,
-                role: msg.role,
-                content: msg.content,
-              }),
-            );
-            setMessages(loadedMessages);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load chat:", err);
-      }
-    };
-
-    if (chatId) {
-      loadChat();
-    }
-  }, [chatId, fetchWorkspace]);
-
-  const handleSubmit = async () => {
-    if (!input.trim() || isLoading) return;
-
-    const userMessage: Message = {
-      id: nanoid(),
-      role: "user",
-      content: input.trim(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/chat",
+        body: {
           chatId,
-          message: userMessage.content,
-          workspaceId,
-          provider: "groq",
-        }),
-      });
+          workspaceId: workspace?.id,
+        },
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [], // intentionally stable — created only once on mount
+  );
 
-      const data = await response.json();
+  const { messages, status, sendMessage } = useChat({
+    id: chatId,
+    messages: initialMessages,
+    transport,
+    onError: (err) => {
+      console.error("useChat error:", err);
+      setError(err instanceof Error ? err.message : "An error occurred");
+    },
+    onFinish: ({ message }) => {
+      console.log("✅ [useChat] onFinish — final message:", message);
+    },
+  });
 
-      if (data.error) {
-        setError(data.error);
-        setIsLoading(false);
-        return;
-      }
+  // Pass modelOptionId in the per-request body so every message carries the
+  // currently selected model, regardless of when the transport was created.
+  const handleSubmit = useCallback(
+    (message: PromptInputMessage) => {
+      if (!message.text?.trim()) return;
+      setError(null);
+      sendMessage(
+        { text: message.text, files: message.files },
+        {
+          body: {
+            chatId,
+            workspaceId: workspace?.id,
+            modelOptionId: selectedModel,
+          },
+        },
+      );
+    },
+    [sendMessage, chatId, workspace?.id, selectedModel],
+  );
 
-      const aiMessage: Message = {
-        id: nanoid(),
-        role: "assistant",
-        content: data.content,
-        sources: data.sources,
-      };
-
-      setMessages((prev) => [...prev, aiMessage]);
-    } catch (err) {
-      console.error("Chat error:", err);
-      setError("Failed to get response. Please try again.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Retry a specific user prompt — re-sends that exact message text.
+  // This lets retry work correctly for any message in the conversation,
+  // not just the last one.
+  const handleRetry = useCallback(
+    (userPrompt: string) => {
+      if (!userPrompt.trim()) return;
+      setError(null);
+      sendMessage(
+        { text: userPrompt },
+        {
+          body: {
+            chatId,
+            workspaceId: workspace?.id,
+            modelOptionId: selectedModel,
+          },
+        },
+      );
+    },
+    [sendMessage, chatId, workspace?.id, selectedModel],
+  );
 
   return (
-    <div className="h-dvh flex flex-col overflow-hidden">
-      {/* FIXED HEIGHT HEADER */}
+    <div className="flex flex-col h-screen bg-background">
       <ChatHeader
         selectedModel={selectedModel}
         onModelChange={setSelectedModel}
         workspace={workspace}
       />
 
-      {/* FLEXIBLE MIDDLE SECTION - ONLY MESSAGES SCROLL */}
-      <div className="flex-1 overflow-hidden flex flex-col">
-        {/* Error Banner */}
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col px-4 md:px-8">
         {error && (
-          <div className="mx-4 mt-2 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm flex-shrink-0">
+          <div className="p-4 rounded-lg bg-destructive/10 text-destructive text-sm shrink-0">
             {error}
           </div>
         )}
 
-        <ChatMessages messages={messages} isLoading={isLoading} />
+        <ChatMessages
+          messages={messages}
+          status={status}
+          onRetry={handleRetry}
+        />
       </div>
 
-      {/* FIXED HEIGHT INPUT */}
-      <ChatInput
-        value={input}
-        onChange={setInput}
-        onSubmit={handleSubmit}
-        isLoading={isLoading}
-      />
+      <ChatInput onSubmit={handleSubmit} status={status} />
     </div>
   );
 }

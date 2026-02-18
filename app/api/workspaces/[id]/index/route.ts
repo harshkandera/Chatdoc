@@ -3,8 +3,9 @@ import { prisma } from "@/lib/db/prisma";
 import { NextResponse } from "next/server";
 import { inngest } from "@/lib/inngest/client";
 import { updateDocSourceStatus } from "@/lib/db/docSource";
+import { checkReindexLimit, incrementReindexCount } from "@/lib/reindex-limit";
 
-// POST /api/workspaces/[id]/index - Start indexing a workspace's DocSource
+// POST /api/workspaces/[id]/index - Start indexing or re-indexing a workspace's DocSource
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -32,18 +33,14 @@ export async function POST(
 
   const docSource = workspace.DocSource;
 
-  // Check if DocSource is already ready (no re-indexing needed)
-  if (docSource.status === "ready") {
-    return NextResponse.json({
-      message: "Documentation already indexed",
-      workspaceId: workspace.id,
-      docSourceId: docSource.id,
-      status: "ready",
-    });
-  }
-
   // Check if already indexing (any indexing-related status)
-  const indexingStatuses = ["scraping", "chunking", "embedding", "storing"];
+  const indexingStatuses = [
+    "scraping",
+    "chunking",
+    "embedding",
+    "storing",
+    "pending",
+  ];
   if (indexingStatuses.includes(docSource.status)) {
     return NextResponse.json(
       { error: "Indexing already in progress" },
@@ -51,32 +48,84 @@ export async function POST(
     );
   }
 
+  // Determine if this is a re-index (docs already ready) or first-time index
+  const isReindex = docSource.status === "ready";
+
+  // If re-indexing, check the user's monthly limit
+  if (isReindex) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    const limitCheck = await checkReindexLimit(user.id);
+    if (!limitCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: "Re-index limit reached",
+          used: limitCheck.used,
+          limit: limitCheck.limit,
+          isPro: limitCheck.isPro,
+          resetsAt: limitCheck.resetsAt.toISOString(),
+        },
+        { status: 429 },
+      );
+    }
+  }
+
   try {
-    // Send event to Inngest FIRST (before changing status)
-    // If Inngest fails, we won't change the status
-    await inngest.send({
-      name: "docsource/index.requested",
-      data: {
+    if (isReindex) {
+      // Smart re-index: compare hashes, only re-embed changed pages
+      await inngest.send({
+        name: "docsource/reindex.requested",
+        data: {
+          docSourceId: docSource.id,
+          productName: docSource.productName,
+        },
+      });
+
+      // Increment the user's re-index count
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      if (user) {
+        await incrementReindexCount(user.id);
+      }
+
+      await updateDocSourceStatus(docSource.id, "pending", {
+        message: "Re-index queued (smart incremental)...",
+      });
+
+      return NextResponse.json({
+        message: "Smart re-index started",
+        workspaceId: workspace.id,
         docSourceId: docSource.id,
-        productName: docSource.productName,
-      },
-    });
+        type: "reindex",
+      });
+    } else {
+      // First-time index
+      await inngest.send({
+        name: "docsource/index.requested",
+        data: {
+          docSourceId: docSource.id,
+          productName: docSource.productName,
+        },
+      });
 
-    // Only update status AFTER successful event send
-    await updateDocSourceStatus(docSource.id, "pending", {
-      message: "Queued for indexing...",
-    });
+      await updateDocSourceStatus(docSource.id, "pending", {
+        message: "Queued for indexing...",
+      });
 
-    return NextResponse.json({
-      message: "Indexing started",
-      workspaceId: workspace.id,
-      docSourceId: docSource.id,
-    });
+      return NextResponse.json({
+        message: "Indexing started",
+        workspaceId: workspace.id,
+        docSourceId: docSource.id,
+        type: "index",
+      });
+    }
   } catch (error) {
     console.error("Failed to start indexing:", error);
 
-    // Ensure status is reset if anything failed
-    await updateDocSourceStatus(docSource.id, "pending");
+    // Reset status on failure
+    await updateDocSourceStatus(docSource.id, isReindex ? "ready" : "pending");
 
     return NextResponse.json(
       { error: "Failed to start indexing. Please try again." },
@@ -105,10 +154,13 @@ export async function GET(
         select: {
           id: true,
           status: true,
+          statusMessage: true,
           documentCount: true,
           chunkCount: true,
           lastIndexedAt: true,
           productName: true,
+          failedUrls: true,
+          lastAutoReindexAt: true,
         },
       },
     },
@@ -118,8 +170,16 @@ export async function GET(
     return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
   }
 
+  // Also get the user's re-index limit status
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  let reindexLimit = null;
+  if (user) {
+    reindexLimit = await checkReindexLimit(user.id);
+  }
+
   return NextResponse.json({
     workspaceId: workspace.id,
     ...workspace.DocSource,
+    reindexLimit,
   });
 }

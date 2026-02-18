@@ -8,6 +8,7 @@ import {
 import { inngest } from "@/lib/inngest/client";
 import { checkDocLimit } from "@/lib/subscription";
 import { ensureUser } from "@/lib/db/user";
+import { polar } from "@/lib/polar";
 
 export const dynamic = "force-dynamic";
 
@@ -180,6 +181,37 @@ export async function POST(req: Request) {
     console.log(
       `[Workspace] DocSource already indexed (${docSource.id}, status: ${docSource.status})`,
     );
+  }
+
+  // Track workspace creation in Polar for Pro users
+  if (isNewWorkspace) {
+    try {
+      const dbUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { customerId: true },
+      });
+
+      if (dbUser?.customerId) {
+        await polar.events.ingest({
+          events: [
+            {
+              name: "workspace_created",
+              externalCustomerId: dbUser.customerId,
+              metadata: {
+                workspaceId: workspace.id,
+                docSourceId: docSource.id,
+                productName: cleanName,
+              },
+            },
+          ],
+        });
+        console.log(
+          `📊 [Polar] Workspace creation tracked for customer ${dbUser.customerId}`,
+        );
+      }
+    } catch (meterError) {
+      console.error("[Polar] Failed to track workspace creation:", meterError);
+    }
   }
 
   return NextResponse.json(

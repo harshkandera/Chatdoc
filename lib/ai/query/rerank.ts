@@ -82,10 +82,13 @@ Example output: [{"index": 0, "score": 9}, {"index": 1, "score": 3}]`,
   }
 }
 
+
 /**
  * Optional: Cohere Reranker (better quality, requires API key)
  * Install: pnpm add cohere-ai
  */
+
+
 export async function rerankWithCohere(
   query: string,
   chunks: SearchResult[],

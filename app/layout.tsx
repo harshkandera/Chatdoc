@@ -3,6 +3,7 @@ import { Inter, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Analytics } from "@vercel/analytics/next";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -91,36 +92,38 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${geistMono.variable} antialiased bg-black text-white`}
       >
-        <ClerkProvider
-          appearance={{
-            variables: {
-              colorBackground: "#000000",
-              colorText: "#ffffff",
-              colorTextSecondary: "#a3a3a3",
-              colorPrimary: "#6c47ff",
-              colorDanger: "#ef4444",
-              borderRadius: "0.75rem",
-              fontSize: "0.875rem",
-            },
-            elements: {
-              card: "bg-black border border-white/10 shadow-xl",
-              navbar: "bg-black border-b border-white/10",
-              navbarButton: "text-neutral-300 hover:text-white",
-              headerTitle: "text-white",
-              headerSubtitle: "text-neutral-400",
+        <TooltipProvider>
+          <ClerkProvider
+            appearance={{
+              variables: {
+                colorBackground: "#000000",
+                colorText: "#ffffff",
+                colorTextSecondary: "#a3a3a3",
+                colorPrimary: "#6c47ff",
+                colorDanger: "#ef4444",
+                borderRadius: "0.75rem",
+                fontSize: "0.875rem",
+              },
+              elements: {
+                card: "bg-black border border-white/10 shadow-xl",
+                navbar: "bg-black border-b border-white/10",
+                navbarButton: "text-neutral-300 hover:text-white",
+                headerTitle: "text-white",
+                headerSubtitle: "text-neutral-400",
 
-              formButtonPrimary:
-                "bg-[#6c47ff] hover:bg-[#5a3be0] text-white rounded-lg",
+                formButtonPrimary:
+                  "bg-[#6c47ff] hover:bg-[#5a3be0] text-white rounded-lg",
 
-              formFieldInput:
-                "bg-black border border-white/10 text-white focus:ring-[#6c47ff]",
+                formFieldInput:
+                  "bg-black border border-white/10 text-white focus:ring-[#6c47ff]",
 
-              footer: "hidden",
-            },
-          }}
-        >
-          {children}
-        </ClerkProvider>
+                footer: "hidden",
+              },
+            }}
+          >
+            {children}
+          </ClerkProvider>
+        </TooltipProvider>
         <Analytics />
       </body>
     </html>

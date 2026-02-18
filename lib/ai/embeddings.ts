@@ -48,20 +48,26 @@ const generateGeminiEmbeddings = traceable(
 );
 
 // Main export: generate a single embedding
-export async function generateEmbedding(text: string): Promise<number[]> {
-  if (EMBEDDING_PROVIDER === "openai") {
-    return await openaiEmbeddings.embedQuery(text);
-  }
-  return await generateGeminiEmbedding(text);
-}
+export const generateEmbedding = traceable(
+  async (text: string): Promise<number[]> => {
+    if (EMBEDDING_PROVIDER === "openai") {
+      return await openaiEmbeddings.embedQuery(text);
+    }
+    return await generateGeminiEmbedding(text);
+  },
+  { name: "generate-embedding", run_type: "embedding" },
+);
 
 // Generate embeddings for multiple texts
-export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
-  if (EMBEDDING_PROVIDER === "openai") {
-    return await openaiEmbeddings.embedDocuments(texts);
-  }
-  return await generateGeminiEmbeddings(texts);
-}
+export const generateEmbeddings = traceable(
+  async (texts: string[]): Promise<number[][]> => {
+    if (EMBEDDING_PROVIDER === "openai") {
+      return await openaiEmbeddings.embedDocuments(texts);
+    }
+    return await generateGeminiEmbeddings(texts);
+  },
+  { name: "generate-embeddings-batch", run_type: "embedding" },
+);
 
 // For backward compatibility - returns an object with embedQuery/embedDocuments methods
 export function getEmbeddings() {

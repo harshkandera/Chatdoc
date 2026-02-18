@@ -51,6 +51,7 @@ export type ChunkMinAggregateOutputType = {
   hasCode: boolean | null
   wordCount: number | null
   vectorId: string | null
+  contentHash: string | null
   indexedAt: Date | null
 }
 
@@ -69,6 +70,7 @@ export type ChunkMaxAggregateOutputType = {
   hasCode: boolean | null
   wordCount: number | null
   vectorId: string | null
+  contentHash: string | null
   indexedAt: Date | null
 }
 
@@ -88,6 +90,7 @@ export type ChunkCountAggregateOutputType = {
   codeLanguages: number
   wordCount: number
   vectorId: number
+  contentHash: number
   indexedAt: number
   _all: number
 }
@@ -118,6 +121,7 @@ export type ChunkMinAggregateInputType = {
   hasCode?: true
   wordCount?: true
   vectorId?: true
+  contentHash?: true
   indexedAt?: true
 }
 
@@ -136,6 +140,7 @@ export type ChunkMaxAggregateInputType = {
   hasCode?: true
   wordCount?: true
   vectorId?: true
+  contentHash?: true
   indexedAt?: true
 }
 
@@ -155,6 +160,7 @@ export type ChunkCountAggregateInputType = {
   codeLanguages?: true
   wordCount?: true
   vectorId?: true
+  contentHash?: true
   indexedAt?: true
   _all?: true
 }
@@ -261,6 +267,7 @@ export type ChunkGroupByOutputType = {
   codeLanguages: string[]
   wordCount: number
   vectorId: string
+  contentHash: string | null
   indexedAt: Date
   _count: ChunkCountAggregateOutputType | null
   _avg: ChunkAvgAggregateOutputType | null
@@ -303,6 +310,7 @@ export type ChunkWhereInput = {
   codeLanguages?: Prisma.StringNullableListFilter<"Chunk">
   wordCount?: Prisma.IntFilter<"Chunk"> | number
   vectorId?: Prisma.StringFilter<"Chunk"> | string
+  contentHash?: Prisma.StringNullableFilter<"Chunk"> | string | null
   indexedAt?: Prisma.DateTimeFilter<"Chunk"> | Date | string
   DocSource?: Prisma.XOR<Prisma.DocSourceScalarRelationFilter, Prisma.DocSourceWhereInput>
 }
@@ -323,6 +331,7 @@ export type ChunkOrderByWithRelationInput = {
   codeLanguages?: Prisma.SortOrder
   wordCount?: Prisma.SortOrder
   vectorId?: Prisma.SortOrder
+  contentHash?: Prisma.SortOrderInput | Prisma.SortOrder
   indexedAt?: Prisma.SortOrder
   DocSource?: Prisma.DocSourceOrderByWithRelationInput
 }
@@ -346,6 +355,7 @@ export type ChunkWhereUniqueInput = Prisma.AtLeast<{
   hasCode?: Prisma.BoolFilter<"Chunk"> | boolean
   codeLanguages?: Prisma.StringNullableListFilter<"Chunk">
   wordCount?: Prisma.IntFilter<"Chunk"> | number
+  contentHash?: Prisma.StringNullableFilter<"Chunk"> | string | null
   indexedAt?: Prisma.DateTimeFilter<"Chunk"> | Date | string
   DocSource?: Prisma.XOR<Prisma.DocSourceScalarRelationFilter, Prisma.DocSourceWhereInput>
 }, "id" | "vectorId">
@@ -366,6 +376,7 @@ export type ChunkOrderByWithAggregationInput = {
   codeLanguages?: Prisma.SortOrder
   wordCount?: Prisma.SortOrder
   vectorId?: Prisma.SortOrder
+  contentHash?: Prisma.SortOrderInput | Prisma.SortOrder
   indexedAt?: Prisma.SortOrder
   _count?: Prisma.ChunkCountOrderByAggregateInput
   _avg?: Prisma.ChunkAvgOrderByAggregateInput
@@ -393,6 +404,7 @@ export type ChunkScalarWhereWithAggregatesInput = {
   codeLanguages?: Prisma.StringNullableListFilter<"Chunk">
   wordCount?: Prisma.IntWithAggregatesFilter<"Chunk"> | number
   vectorId?: Prisma.StringWithAggregatesFilter<"Chunk"> | string
+  contentHash?: Prisma.StringNullableWithAggregatesFilter<"Chunk"> | string | null
   indexedAt?: Prisma.DateTimeWithAggregatesFilter<"Chunk"> | Date | string
 }
 
@@ -411,6 +423,7 @@ export type ChunkCreateInput = {
   codeLanguages?: Prisma.ChunkCreatecodeLanguagesInput | string[]
   wordCount?: number
   vectorId: string
+  contentHash?: string | null
   indexedAt?: Date | string
   DocSource: Prisma.DocSourceCreateNestedOneWithoutChunkInput
 }
@@ -431,6 +444,7 @@ export type ChunkUncheckedCreateInput = {
   codeLanguages?: Prisma.ChunkCreatecodeLanguagesInput | string[]
   wordCount?: number
   vectorId: string
+  contentHash?: string | null
   indexedAt?: Date | string
 }
 
@@ -449,6 +463,7 @@ export type ChunkUpdateInput = {
   codeLanguages?: Prisma.ChunkUpdatecodeLanguagesInput | string[]
   wordCount?: Prisma.IntFieldUpdateOperationsInput | number
   vectorId?: Prisma.StringFieldUpdateOperationsInput | string
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   indexedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   DocSource?: Prisma.DocSourceUpdateOneRequiredWithoutChunkNestedInput
 }
@@ -469,6 +484,7 @@ export type ChunkUncheckedUpdateInput = {
   codeLanguages?: Prisma.ChunkUpdatecodeLanguagesInput | string[]
   wordCount?: Prisma.IntFieldUpdateOperationsInput | number
   vectorId?: Prisma.StringFieldUpdateOperationsInput | string
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   indexedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -488,6 +504,7 @@ export type ChunkCreateManyInput = {
   codeLanguages?: Prisma.ChunkCreatecodeLanguagesInput | string[]
   wordCount?: number
   vectorId: string
+  contentHash?: string | null
   indexedAt?: Date | string
 }
 
@@ -506,6 +523,7 @@ export type ChunkUpdateManyMutationInput = {
   codeLanguages?: Prisma.ChunkUpdatecodeLanguagesInput | string[]
   wordCount?: Prisma.IntFieldUpdateOperationsInput | number
   vectorId?: Prisma.StringFieldUpdateOperationsInput | string
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   indexedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -525,6 +543,7 @@ export type ChunkUncheckedUpdateManyInput = {
   codeLanguages?: Prisma.ChunkUpdatecodeLanguagesInput | string[]
   wordCount?: Prisma.IntFieldUpdateOperationsInput | number
   vectorId?: Prisma.StringFieldUpdateOperationsInput | string
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   indexedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -536,14 +555,6 @@ export type ChunkListRelationFilter = {
 
 export type ChunkOrderByRelationAggregateInput = {
   _count?: Prisma.SortOrder
-}
-
-export type StringNullableListFilter<$PrismaModel = never> = {
-  equals?: string[] | Prisma.ListStringFieldRefInput<$PrismaModel> | null
-  has?: string | Prisma.StringFieldRefInput<$PrismaModel> | null
-  hasEvery?: string[] | Prisma.ListStringFieldRefInput<$PrismaModel>
-  hasSome?: string[] | Prisma.ListStringFieldRefInput<$PrismaModel>
-  isEmpty?: boolean
 }
 
 export type ChunkCountOrderByAggregateInput = {
@@ -562,6 +573,7 @@ export type ChunkCountOrderByAggregateInput = {
   codeLanguages?: Prisma.SortOrder
   wordCount?: Prisma.SortOrder
   vectorId?: Prisma.SortOrder
+  contentHash?: Prisma.SortOrder
   indexedAt?: Prisma.SortOrder
 }
 
@@ -585,6 +597,7 @@ export type ChunkMaxOrderByAggregateInput = {
   hasCode?: Prisma.SortOrder
   wordCount?: Prisma.SortOrder
   vectorId?: Prisma.SortOrder
+  contentHash?: Prisma.SortOrder
   indexedAt?: Prisma.SortOrder
 }
 
@@ -603,6 +616,7 @@ export type ChunkMinOrderByAggregateInput = {
   hasCode?: Prisma.SortOrder
   wordCount?: Prisma.SortOrder
   vectorId?: Prisma.SortOrder
+  contentHash?: Prisma.SortOrder
   indexedAt?: Prisma.SortOrder
 }
 
@@ -681,6 +695,7 @@ export type ChunkCreateWithoutDocSourceInput = {
   codeLanguages?: Prisma.ChunkCreatecodeLanguagesInput | string[]
   wordCount?: number
   vectorId: string
+  contentHash?: string | null
   indexedAt?: Date | string
 }
 
@@ -699,6 +714,7 @@ export type ChunkUncheckedCreateWithoutDocSourceInput = {
   codeLanguages?: Prisma.ChunkCreatecodeLanguagesInput | string[]
   wordCount?: number
   vectorId: string
+  contentHash?: string | null
   indexedAt?: Date | string
 }
 
@@ -747,6 +763,7 @@ export type ChunkScalarWhereInput = {
   codeLanguages?: Prisma.StringNullableListFilter<"Chunk">
   wordCount?: Prisma.IntFilter<"Chunk"> | number
   vectorId?: Prisma.StringFilter<"Chunk"> | string
+  contentHash?: Prisma.StringNullableFilter<"Chunk"> | string | null
   indexedAt?: Prisma.DateTimeFilter<"Chunk"> | Date | string
 }
 
@@ -765,6 +782,7 @@ export type ChunkCreateManyDocSourceInput = {
   codeLanguages?: Prisma.ChunkCreatecodeLanguagesInput | string[]
   wordCount?: number
   vectorId: string
+  contentHash?: string | null
   indexedAt?: Date | string
 }
 
@@ -783,6 +801,7 @@ export type ChunkUpdateWithoutDocSourceInput = {
   codeLanguages?: Prisma.ChunkUpdatecodeLanguagesInput | string[]
   wordCount?: Prisma.IntFieldUpdateOperationsInput | number
   vectorId?: Prisma.StringFieldUpdateOperationsInput | string
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   indexedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -801,6 +820,7 @@ export type ChunkUncheckedUpdateWithoutDocSourceInput = {
   codeLanguages?: Prisma.ChunkUpdatecodeLanguagesInput | string[]
   wordCount?: Prisma.IntFieldUpdateOperationsInput | number
   vectorId?: Prisma.StringFieldUpdateOperationsInput | string
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   indexedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -819,6 +839,7 @@ export type ChunkUncheckedUpdateManyWithoutDocSourceInput = {
   codeLanguages?: Prisma.ChunkUpdatecodeLanguagesInput | string[]
   wordCount?: Prisma.IntFieldUpdateOperationsInput | number
   vectorId?: Prisma.StringFieldUpdateOperationsInput | string
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   indexedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -840,6 +861,7 @@ export type ChunkSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
   codeLanguages?: boolean
   wordCount?: boolean
   vectorId?: boolean
+  contentHash?: boolean
   indexedAt?: boolean
   DocSource?: boolean | Prisma.DocSourceDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["chunk"]>
@@ -860,6 +882,7 @@ export type ChunkSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensi
   codeLanguages?: boolean
   wordCount?: boolean
   vectorId?: boolean
+  contentHash?: boolean
   indexedAt?: boolean
   DocSource?: boolean | Prisma.DocSourceDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["chunk"]>
@@ -880,6 +903,7 @@ export type ChunkSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensi
   codeLanguages?: boolean
   wordCount?: boolean
   vectorId?: boolean
+  contentHash?: boolean
   indexedAt?: boolean
   DocSource?: boolean | Prisma.DocSourceDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["chunk"]>
@@ -900,10 +924,11 @@ export type ChunkSelectScalar = {
   codeLanguages?: boolean
   wordCount?: boolean
   vectorId?: boolean
+  contentHash?: boolean
   indexedAt?: boolean
 }
 
-export type ChunkOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "docSourceId" | "content" | "url" | "urlHash" | "title" | "section" | "chunkIndex" | "headings" | "pageType" | "version" | "hasCode" | "codeLanguages" | "wordCount" | "vectorId" | "indexedAt", ExtArgs["result"]["chunk"]>
+export type ChunkOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "docSourceId" | "content" | "url" | "urlHash" | "title" | "section" | "chunkIndex" | "headings" | "pageType" | "version" | "hasCode" | "codeLanguages" | "wordCount" | "vectorId" | "contentHash" | "indexedAt", ExtArgs["result"]["chunk"]>
 export type ChunkInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   DocSource?: boolean | Prisma.DocSourceDefaultArgs<ExtArgs>
 }
@@ -935,6 +960,7 @@ export type $ChunkPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs 
     codeLanguages: string[]
     wordCount: number
     vectorId: string
+    contentHash: string | null
     indexedAt: Date
   }, ExtArgs["result"]["chunk"]>
   composites: {}
@@ -1375,6 +1401,7 @@ export interface ChunkFieldRefs {
   readonly codeLanguages: Prisma.FieldRef<"Chunk", 'String[]'>
   readonly wordCount: Prisma.FieldRef<"Chunk", 'Int'>
   readonly vectorId: Prisma.FieldRef<"Chunk", 'String'>
+  readonly contentHash: Prisma.FieldRef<"Chunk", 'String'>
   readonly indexedAt: Prisma.FieldRef<"Chunk", 'DateTime'>
 }
     

@@ -50,6 +50,7 @@ export type DocSourceMinAggregateOutputType = {
   lastIndexedAt: Date | null
   documentCount: number | null
   chunkCount: number | null
+  lastAutoReindexAt: Date | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -68,6 +69,7 @@ export type DocSourceMaxAggregateOutputType = {
   lastIndexedAt: Date | null
   documentCount: number | null
   chunkCount: number | null
+  lastAutoReindexAt: Date | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -86,6 +88,8 @@ export type DocSourceCountAggregateOutputType = {
   lastIndexedAt: number
   documentCount: number
   chunkCount: number
+  lastAutoReindexAt: number
+  failedUrls: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -116,6 +120,7 @@ export type DocSourceMinAggregateInputType = {
   lastIndexedAt?: true
   documentCount?: true
   chunkCount?: true
+  lastAutoReindexAt?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -134,6 +139,7 @@ export type DocSourceMaxAggregateInputType = {
   lastIndexedAt?: true
   documentCount?: true
   chunkCount?: true
+  lastAutoReindexAt?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -152,6 +158,8 @@ export type DocSourceCountAggregateInputType = {
   lastIndexedAt?: true
   documentCount?: true
   chunkCount?: true
+  lastAutoReindexAt?: true
+  failedUrls?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -257,6 +265,8 @@ export type DocSourceGroupByOutputType = {
   lastIndexedAt: Date | null
   documentCount: number
   chunkCount: number
+  lastAutoReindexAt: Date | null
+  failedUrls: string[]
   createdAt: Date
   updatedAt: Date
   _count: DocSourceCountAggregateOutputType | null
@@ -298,6 +308,8 @@ export type DocSourceWhereInput = {
   lastIndexedAt?: Prisma.DateTimeNullableFilter<"DocSource"> | Date | string | null
   documentCount?: Prisma.IntFilter<"DocSource"> | number
   chunkCount?: Prisma.IntFilter<"DocSource"> | number
+  lastAutoReindexAt?: Prisma.DateTimeNullableFilter<"DocSource"> | Date | string | null
+  failedUrls?: Prisma.StringNullableListFilter<"DocSource">
   createdAt?: Prisma.DateTimeFilter<"DocSource"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DocSource"> | Date | string
   Workspace?: Prisma.WorkspaceListRelationFilter
@@ -318,6 +330,8 @@ export type DocSourceOrderByWithRelationInput = {
   lastIndexedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   documentCount?: Prisma.SortOrder
   chunkCount?: Prisma.SortOrder
+  lastAutoReindexAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  failedUrls?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   Workspace?: Prisma.WorkspaceOrderByRelationAggregateInput
@@ -341,6 +355,8 @@ export type DocSourceWhereUniqueInput = Prisma.AtLeast<{
   lastIndexedAt?: Prisma.DateTimeNullableFilter<"DocSource"> | Date | string | null
   documentCount?: Prisma.IntFilter<"DocSource"> | number
   chunkCount?: Prisma.IntFilter<"DocSource"> | number
+  lastAutoReindexAt?: Prisma.DateTimeNullableFilter<"DocSource"> | Date | string | null
+  failedUrls?: Prisma.StringNullableListFilter<"DocSource">
   createdAt?: Prisma.DateTimeFilter<"DocSource"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DocSource"> | Date | string
   Workspace?: Prisma.WorkspaceListRelationFilter
@@ -361,6 +377,8 @@ export type DocSourceOrderByWithAggregationInput = {
   lastIndexedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   documentCount?: Prisma.SortOrder
   chunkCount?: Prisma.SortOrder
+  lastAutoReindexAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  failedUrls?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.DocSourceCountOrderByAggregateInput
@@ -387,6 +405,8 @@ export type DocSourceScalarWhereWithAggregatesInput = {
   lastIndexedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"DocSource"> | Date | string | null
   documentCount?: Prisma.IntWithAggregatesFilter<"DocSource"> | number
   chunkCount?: Prisma.IntWithAggregatesFilter<"DocSource"> | number
+  lastAutoReindexAt?: Prisma.DateTimeNullableWithAggregatesFilter<"DocSource"> | Date | string | null
+  failedUrls?: Prisma.StringNullableListFilter<"DocSource">
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"DocSource"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"DocSource"> | Date | string
 }
@@ -405,6 +425,8 @@ export type DocSourceCreateInput = {
   lastIndexedAt?: Date | string | null
   documentCount?: number
   chunkCount?: number
+  lastAutoReindexAt?: Date | string | null
+  failedUrls?: Prisma.DocSourceCreatefailedUrlsInput | string[]
   createdAt?: Date | string
   updatedAt?: Date | string
   Workspace?: Prisma.WorkspaceCreateNestedManyWithoutDocSourceInput
@@ -425,6 +447,8 @@ export type DocSourceUncheckedCreateInput = {
   lastIndexedAt?: Date | string | null
   documentCount?: number
   chunkCount?: number
+  lastAutoReindexAt?: Date | string | null
+  failedUrls?: Prisma.DocSourceCreatefailedUrlsInput | string[]
   createdAt?: Date | string
   updatedAt?: Date | string
   Workspace?: Prisma.WorkspaceUncheckedCreateNestedManyWithoutDocSourceInput
@@ -445,6 +469,8 @@ export type DocSourceUpdateInput = {
   lastIndexedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   documentCount?: Prisma.IntFieldUpdateOperationsInput | number
   chunkCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastAutoReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  failedUrls?: Prisma.DocSourceUpdatefailedUrlsInput | string[]
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   Workspace?: Prisma.WorkspaceUpdateManyWithoutDocSourceNestedInput
@@ -465,6 +491,8 @@ export type DocSourceUncheckedUpdateInput = {
   lastIndexedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   documentCount?: Prisma.IntFieldUpdateOperationsInput | number
   chunkCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastAutoReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  failedUrls?: Prisma.DocSourceUpdatefailedUrlsInput | string[]
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   Workspace?: Prisma.WorkspaceUncheckedUpdateManyWithoutDocSourceNestedInput
@@ -485,6 +513,8 @@ export type DocSourceCreateManyInput = {
   lastIndexedAt?: Date | string | null
   documentCount?: number
   chunkCount?: number
+  lastAutoReindexAt?: Date | string | null
+  failedUrls?: Prisma.DocSourceCreatefailedUrlsInput | string[]
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -503,6 +533,8 @@ export type DocSourceUpdateManyMutationInput = {
   lastIndexedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   documentCount?: Prisma.IntFieldUpdateOperationsInput | number
   chunkCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastAutoReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  failedUrls?: Prisma.DocSourceUpdatefailedUrlsInput | string[]
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -521,8 +553,18 @@ export type DocSourceUncheckedUpdateManyInput = {
   lastIndexedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   documentCount?: Prisma.IntFieldUpdateOperationsInput | number
   chunkCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastAutoReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  failedUrls?: Prisma.DocSourceUpdatefailedUrlsInput | string[]
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type StringNullableListFilter<$PrismaModel = never> = {
+  equals?: string[] | Prisma.ListStringFieldRefInput<$PrismaModel> | null
+  has?: string | Prisma.StringFieldRefInput<$PrismaModel> | null
+  hasEvery?: string[] | Prisma.ListStringFieldRefInput<$PrismaModel>
+  hasSome?: string[] | Prisma.ListStringFieldRefInput<$PrismaModel>
+  isEmpty?: boolean
 }
 
 export type DocSourceCountOrderByAggregateInput = {
@@ -539,6 +581,8 @@ export type DocSourceCountOrderByAggregateInput = {
   lastIndexedAt?: Prisma.SortOrder
   documentCount?: Prisma.SortOrder
   chunkCount?: Prisma.SortOrder
+  lastAutoReindexAt?: Prisma.SortOrder
+  failedUrls?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -562,6 +606,7 @@ export type DocSourceMaxOrderByAggregateInput = {
   lastIndexedAt?: Prisma.SortOrder
   documentCount?: Prisma.SortOrder
   chunkCount?: Prisma.SortOrder
+  lastAutoReindexAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -580,6 +625,7 @@ export type DocSourceMinOrderByAggregateInput = {
   lastIndexedAt?: Prisma.SortOrder
   documentCount?: Prisma.SortOrder
   chunkCount?: Prisma.SortOrder
+  lastAutoReindexAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -594,12 +640,13 @@ export type DocSourceScalarRelationFilter = {
   isNot?: Prisma.DocSourceWhereInput
 }
 
-export type IntFieldUpdateOperationsInput = {
-  set?: number
-  increment?: number
-  decrement?: number
-  multiply?: number
-  divide?: number
+export type DocSourceCreatefailedUrlsInput = {
+  set: string[]
+}
+
+export type DocSourceUpdatefailedUrlsInput = {
+  set?: string[]
+  push?: string | string[]
 }
 
 export type DocSourceCreateNestedOneWithoutChunkInput = {
@@ -644,6 +691,8 @@ export type DocSourceCreateWithoutChunkInput = {
   lastIndexedAt?: Date | string | null
   documentCount?: number
   chunkCount?: number
+  lastAutoReindexAt?: Date | string | null
+  failedUrls?: Prisma.DocSourceCreatefailedUrlsInput | string[]
   createdAt?: Date | string
   updatedAt?: Date | string
   Workspace?: Prisma.WorkspaceCreateNestedManyWithoutDocSourceInput
@@ -663,6 +712,8 @@ export type DocSourceUncheckedCreateWithoutChunkInput = {
   lastIndexedAt?: Date | string | null
   documentCount?: number
   chunkCount?: number
+  lastAutoReindexAt?: Date | string | null
+  failedUrls?: Prisma.DocSourceCreatefailedUrlsInput | string[]
   createdAt?: Date | string
   updatedAt?: Date | string
   Workspace?: Prisma.WorkspaceUncheckedCreateNestedManyWithoutDocSourceInput
@@ -698,6 +749,8 @@ export type DocSourceUpdateWithoutChunkInput = {
   lastIndexedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   documentCount?: Prisma.IntFieldUpdateOperationsInput | number
   chunkCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastAutoReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  failedUrls?: Prisma.DocSourceUpdatefailedUrlsInput | string[]
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   Workspace?: Prisma.WorkspaceUpdateManyWithoutDocSourceNestedInput
@@ -717,6 +770,8 @@ export type DocSourceUncheckedUpdateWithoutChunkInput = {
   lastIndexedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   documentCount?: Prisma.IntFieldUpdateOperationsInput | number
   chunkCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastAutoReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  failedUrls?: Prisma.DocSourceUpdatefailedUrlsInput | string[]
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   Workspace?: Prisma.WorkspaceUncheckedUpdateManyWithoutDocSourceNestedInput
@@ -736,6 +791,8 @@ export type DocSourceCreateWithoutWorkspaceInput = {
   lastIndexedAt?: Date | string | null
   documentCount?: number
   chunkCount?: number
+  lastAutoReindexAt?: Date | string | null
+  failedUrls?: Prisma.DocSourceCreatefailedUrlsInput | string[]
   createdAt?: Date | string
   updatedAt?: Date | string
   Chunk?: Prisma.ChunkCreateNestedManyWithoutDocSourceInput
@@ -755,6 +812,8 @@ export type DocSourceUncheckedCreateWithoutWorkspaceInput = {
   lastIndexedAt?: Date | string | null
   documentCount?: number
   chunkCount?: number
+  lastAutoReindexAt?: Date | string | null
+  failedUrls?: Prisma.DocSourceCreatefailedUrlsInput | string[]
   createdAt?: Date | string
   updatedAt?: Date | string
   Chunk?: Prisma.ChunkUncheckedCreateNestedManyWithoutDocSourceInput
@@ -790,6 +849,8 @@ export type DocSourceUpdateWithoutWorkspaceInput = {
   lastIndexedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   documentCount?: Prisma.IntFieldUpdateOperationsInput | number
   chunkCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastAutoReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  failedUrls?: Prisma.DocSourceUpdatefailedUrlsInput | string[]
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   Chunk?: Prisma.ChunkUpdateManyWithoutDocSourceNestedInput
@@ -809,6 +870,8 @@ export type DocSourceUncheckedUpdateWithoutWorkspaceInput = {
   lastIndexedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   documentCount?: Prisma.IntFieldUpdateOperationsInput | number
   chunkCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastAutoReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  failedUrls?: Prisma.DocSourceUpdatefailedUrlsInput | string[]
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   Chunk?: Prisma.ChunkUncheckedUpdateManyWithoutDocSourceNestedInput
@@ -868,6 +931,8 @@ export type DocSourceSelect<ExtArgs extends runtime.Types.Extensions.InternalArg
   lastIndexedAt?: boolean
   documentCount?: boolean
   chunkCount?: boolean
+  lastAutoReindexAt?: boolean
+  failedUrls?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   Workspace?: boolean | Prisma.DocSource$WorkspaceArgs<ExtArgs>
@@ -889,6 +954,8 @@ export type DocSourceSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Ext
   lastIndexedAt?: boolean
   documentCount?: boolean
   chunkCount?: boolean
+  lastAutoReindexAt?: boolean
+  failedUrls?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }, ExtArgs["result"]["docSource"]>
@@ -907,6 +974,8 @@ export type DocSourceSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Ext
   lastIndexedAt?: boolean
   documentCount?: boolean
   chunkCount?: boolean
+  lastAutoReindexAt?: boolean
+  failedUrls?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }, ExtArgs["result"]["docSource"]>
@@ -925,11 +994,13 @@ export type DocSourceSelectScalar = {
   lastIndexedAt?: boolean
   documentCount?: boolean
   chunkCount?: boolean
+  lastAutoReindexAt?: boolean
+  failedUrls?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type DocSourceOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "canonicalUrl" | "rootUrl" | "productKey" | "productName" | "docType" | "version" | "description" | "status" | "statusMessage" | "lastIndexedAt" | "documentCount" | "chunkCount" | "createdAt" | "updatedAt", ExtArgs["result"]["docSource"]>
+export type DocSourceOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "canonicalUrl" | "rootUrl" | "productKey" | "productName" | "docType" | "version" | "description" | "status" | "statusMessage" | "lastIndexedAt" | "documentCount" | "chunkCount" | "lastAutoReindexAt" | "failedUrls" | "createdAt" | "updatedAt", ExtArgs["result"]["docSource"]>
 export type DocSourceInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   Workspace?: boolean | Prisma.DocSource$WorkspaceArgs<ExtArgs>
   Chunk?: boolean | Prisma.DocSource$ChunkArgs<ExtArgs>
@@ -958,6 +1029,8 @@ export type $DocSourcePayload<ExtArgs extends runtime.Types.Extensions.InternalA
     lastIndexedAt: Date | null
     documentCount: number
     chunkCount: number
+    lastAutoReindexAt: Date | null
+    failedUrls: string[]
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["docSource"]>
@@ -1398,6 +1471,8 @@ export interface DocSourceFieldRefs {
   readonly lastIndexedAt: Prisma.FieldRef<"DocSource", 'DateTime'>
   readonly documentCount: Prisma.FieldRef<"DocSource", 'Int'>
   readonly chunkCount: Prisma.FieldRef<"DocSource", 'Int'>
+  readonly lastAutoReindexAt: Prisma.FieldRef<"DocSource", 'DateTime'>
+  readonly failedUrls: Prisma.FieldRef<"DocSource", 'String[]'>
   readonly createdAt: Prisma.FieldRef<"DocSource", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"DocSource", 'DateTime'>
 }

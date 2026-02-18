@@ -3,6 +3,7 @@
 import { Check, X, Zap } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { PRO_PLAN } from "@/lib/plan-config";
 
 interface UpgradeModalProps {
   isOpen: boolean;
@@ -45,18 +46,13 @@ export function UpgradeModal({ isOpen, onClose }: UpgradeModalProps) {
               Upgrade to Pro
             </h2>
             <p className="text-neutral-400 text-sm max-w-sm">
-              You&apos;ve reached the limit of free workspaces. Unlock unlimited
-              power for just $19/mo.
+              You&apos;ve reached the limit of free workspaces. Unlock the full
+              power for just ${PRO_PLAN.price}/mo.
             </p>
           </div>
 
-          <div className="space-y-4 mb-8 bg-white/5 rounded-xl p-4 border border-white/5">
-            {[
-              "Unlimited Documentation Sources",
-              "Priority Indexing Speed",
-              "Advanced RAG (Better Answers)",
-              "Priority Support Channel",
-            ].map((feature) => (
+          <div className="space-y-3 mb-8 bg-white/5 rounded-xl p-4 border border-white/5">
+            {PRO_PLAN.features.map((feature) => (
               <div
                 key={feature}
                 className="flex items-center gap-3 text-sm text-neutral-300"
@@ -76,7 +72,7 @@ export function UpgradeModal({ isOpen, onClose }: UpgradeModalProps) {
               }`}
               className="w-full py-3 bg-white text-black font-semibold rounded-xl text-center hover:bg-neutral-200 transition-colors"
             >
-              Upgrade Now
+              Upgrade Now — ${PRO_PLAN.price}/mo
             </Link>
             <button
               onClick={onClose}

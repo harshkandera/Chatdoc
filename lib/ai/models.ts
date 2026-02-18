@@ -1,58 +1,65 @@
 import { ChatGroq } from "@langchain/groq";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { ChatOpenAI } from "@langchain/openai";
+import { generateText } from "ai";
+import { getAIModel } from "./providers";
 
-export type ModelProvider = "groq" | "openai" | "gemini";
+export type { ModelProvider } from "./model-options";
+import type { ModelProvider } from "./model-options";
 
-// Groq - Fast and free
-const groqModel = new ChatGroq({
-  model: "llama-3.3-70b-versatile",
-  temperature: 0.1,
-  apiKey: process.env.GROQ_API_KEY!,
-});
+// ── LangChain models (used ONLY by LangGraph agent) ──
 
-// OpenAI - Best quality
-const openaiModel = new ChatOpenAI({
-  model: "gpt-4o-mini",
-  temperature: 0.1,
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+const llmCache = new Map<string, ReturnType<typeof createLLM>>();
 
-// Gemini - Google's model
-const geminiModel = new ChatGoogleGenerativeAI({
-  model: "gemini-1.5-flash",
-  temperature: 0.1,
-  apiKey: process.env.GOOGLE_API_KEY!,
-});
-
-// Get LLM by provider
-export function getLLM(provider: ModelProvider = "groq") {
+function createLLM(provider: ModelProvider, modelId?: string) {
   switch (provider) {
     case "openai":
-      return openaiModel;
+      return new ChatOpenAI({
+        model: modelId || "gpt-4o-mini",
+        temperature: 0.1,
+        apiKey: process.env.OPENAI_API_KEY!,
+      });
     case "gemini":
-      return geminiModel;
+      return new ChatGoogleGenerativeAI({
+        model: modelId || "gemini-1.5-flash",
+        temperature: 0.1,
+        apiKey: process.env.GOOGLE_API_KEY!,
+      });
     case "groq":
     default:
-      return groqModel;
+      return new ChatGroq({
+        model: modelId || "llama-3.3-70b-versatile",
+        temperature: 0.1,
+        apiKey: process.env.GROQ_API_KEY!,
+      });
   }
 }
 
-// Simple invoke helper
-export async function invokeModel(
-  provider: ModelProvider,
-  messages: { role: "system" | "user" | "assistant"; content: string }[],
-): Promise<string> {
-  const model = getLLM(provider);
-
-  const response = await model.invoke(
-    messages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    })),
-  );
-
-  return typeof response.content === "string"
-    ? response.content
-    : JSON.stringify(response.content);
+export function getLLM(provider: ModelProvider = "groq", modelId?: string) {
+  const cacheKey = `${provider}:${modelId || "default"}`;
+  const cached = llmCache.get(cacheKey);
+  if (cached) return cached;
+  const llm = createLLM(provider, modelId);
+  llmCache.set(cacheKey, llm);
+  return llm;
 }
+
+// ── AI SDK model calls (used by RAG pipeline) ──
+
+import { traceable } from "langsmith/traceable";
+
+export const invokeModel = traceable(
+  async (
+    provider: ModelProvider,
+    messages: { role: "system" | "user" | "assistant"; content: string }[],
+    modelId?: string,
+  ): Promise<string> => {
+    const { text } = await generateText({
+      model: getAIModel(provider, modelId),
+      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      experimental_telemetry: { isEnabled: true, functionId: "invokeModel" },
+    });
+    return text;
+  },
+  { name: "invoke-model", run_type: "llm" },
+);

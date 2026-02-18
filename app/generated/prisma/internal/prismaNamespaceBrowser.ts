@@ -113,7 +113,9 @@ export const UserScalarFieldEnum = {
   customerId: 'customerId',
   variantId: 'variantId',
   status: 'status',
-  currentPeriodEnd: 'currentPeriodEnd'
+  currentPeriodEnd: 'currentPeriodEnd',
+  reindexCount: 'reindexCount',
+  lastReindexAt: 'lastReindexAt'
 } as const
 
 export type UserScalarFieldEnum = (typeof UserScalarFieldEnum)[keyof typeof UserScalarFieldEnum]
@@ -133,6 +135,8 @@ export const DocSourceScalarFieldEnum = {
   lastIndexedAt: 'lastIndexedAt',
   documentCount: 'documentCount',
   chunkCount: 'chunkCount',
+  lastAutoReindexAt: 'lastAutoReindexAt',
+  failedUrls: 'failedUrls',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -156,6 +160,7 @@ export const ChunkScalarFieldEnum = {
   codeLanguages: 'codeLanguages',
   wordCount: 'wordCount',
   vectorId: 'vectorId',
+  contentHash: 'contentHash',
   indexedAt: 'indexedAt'
 } as const
 

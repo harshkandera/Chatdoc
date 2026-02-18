@@ -3,36 +3,32 @@
 import { Check, Sparkles, Zap } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import {
+  FREE_PLAN,
+  PRO_PLAN,
+  FREE_WORKSPACE_LIMIT,
+  PRO_WORKSPACE_LIMIT,
+  PRO_PRICE,
+} from "@/lib/plan-config";
 
 const plans = [
   {
-    name: "Starter",
-    price: "$0",
+    name: FREE_PLAN.name,
+    price: `$${FREE_PLAN.price}`,
     period: "/mo",
     description: "Perfect for hobby projects and experimentation.",
-    features: [
-      "1 Documentation Source",
-      "Basic Chat Interface",
-      "Standard Support",
-      "Community Access",
-    ],
+    features: FREE_PLAN.features,
     cta: "Start for Free",
     href: "/chat",
     popular: false,
     color: "neutral",
   },
   {
-    name: "Pro",
-    price: "$19",
+    name: PRO_PLAN.name,
+    price: `$${PRO_PLAN.price}`,
     period: "/mo",
     description: "For serious developers building production apps.",
-    features: [
-      "10 Documentation Sources",
-      "Priority Indexing",
-      "Advanced RAG Features",
-      "Priority Support",
-      "Early Access to Features",
-    ],
+    features: PRO_PLAN.features,
     cta: "Upgrade to Pro",
     href: `/api/checkout?products=${process.env.NEXT_PUBLIC_POLAR_PRICE_ID || ""}`,
     popular: true,

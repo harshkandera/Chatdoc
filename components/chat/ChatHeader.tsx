@@ -1,19 +1,20 @@
 "use client";
 
-import { ChevronDown, History, FileText, ExternalLink } from "lucide-react";
+import { ChevronDown, ExternalLink, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-
-const models = [
-  { id: "chatdoc-1.0", name: "ChatDoc 1.0" },
-  { id: "chatdoc-1.5", name: "ChatDoc 1.5" },
-  { id: "chatdoc-2.0", name: "ChatDoc 2.0" },
-];
+import {
+  MODEL_OPTIONS,
+  DEFAULT_MODEL_ID,
+  getModelOption,
+  getModelCategories,
+} from "@/lib/ai/model-options";
 
 interface Workspace {
   id: string;
@@ -28,51 +29,72 @@ interface Workspace {
 
 interface ChatHeaderProps {
   selectedModel?: string;
-  onModelChange?: (model: string) => void;
+  onModelChange?: (modelId: string) => void;
   workspace?: Workspace | null;
 }
 
 export function ChatHeader({
-  selectedModel = "chatdoc-1.0",
+  selectedModel = DEFAULT_MODEL_ID,
   onModelChange,
   workspace,
 }: ChatHeaderProps) {
-  const currentModel = models.find((m) => m.id === selectedModel) || models[0];
+  const currentModel = getModelOption(selectedModel);
+  const categories = getModelCategories();
 
   return (
     <header className="h-14 min-h-14 max-h-14 px-4 border-b border-white/[0.08] flex-shrink-0 z-10 bg-black flex items-center justify-between overflow-hidden">
       <div className="flex items-center gap-4 min-w-0">
-        {/* Model Selector */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               className="gap-2 text-white hover:bg-white/[0.04] font-medium whitespace-nowrap"
             >
-              {currentModel.name}
+              <span className="text-sm">{currentModel.name}</span>
+              <span className="text-[10px] text-neutral-500 font-normal">
+                {currentModel.category}
+              </span>
               <ChevronDown className="w-4 h-4 text-neutral-500 flex-shrink-0" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="start"
-            className="bg-black border-white/[0.08] min-w-[180px]"
+            className="bg-black border-white/[0.08] min-w-[240px]"
           >
-            {models.map((model) => (
-              <DropdownMenuItem
-                key={model.id}
-                onClick={() => onModelChange?.(model.id)}
-                className="text-white hover:bg-white/[0.06] focus:bg-white/[0.06] cursor-pointer"
-              >
-                {model.name}
-              </DropdownMenuItem>
+            {categories.map((category, catIndex) => (
+              <div key={category}>
+                {catIndex > 0 && <DropdownMenuSeparator className="bg-white/[0.08]" />}
+                <div className="px-2 py-1.5 text-[10px] font-semibold text-neutral-500 tracking-wider uppercase">
+                  {category}
+                </div>
+                {MODEL_OPTIONS.filter((m) => m.category === category).map(
+                  (model) => (
+                    <DropdownMenuItem
+                      key={model.id}
+                      onClick={() => onModelChange?.(model.id)}
+                      className="text-white hover:bg-white/[0.06] focus:bg-white/[0.06] cursor-pointer flex items-center justify-between gap-3"
+                    >
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium">
+                          {model.name}
+                        </span>
+                        <span className="text-[11px] text-neutral-500">
+                          {model.description}
+                        </span>
+                      </div>
+                      {model.id === selectedModel && (
+                        <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                      )}
+                    </DropdownMenuItem>
+                  ),
+                )}
+              </div>
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
 
-      
       <div className="flex items-center gap-4 min-w-0 flex-shrink-0">
-        {/* Workspace Badge */}
         {workspace && (
           <div className="flex items-center gap-2 px-3 h-full">
             <div className="flex flex-col justify-center min-w-0">
@@ -93,14 +115,6 @@ export function ChatHeader({
             </a>
           </div>
         )}
-
-        {/* <Button
-          variant="ghost"
-          size="icon"
-          className="text-neutral-400 hover:text-white hover:bg-white/[0.04]"
-        >
-          <History className="w-5 h-5" />
-        </Button> */}
       </div>
     </header>
   );

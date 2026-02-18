@@ -1,18 +1,8 @@
 import { prisma } from "@/lib/db/prisma";
+import { FREE_PLAN, PRO_PLAN } from "@/lib/plan-config";
 
-
-export const PRO_PLAN = {
-  name: "Pro",
-  price: 19,
-  limit: 10,
-};
-
-export const FREE_PLAN = {
-  name: "Free",
-  price: 0,
-  limit: 1,
-};
-
+// Re-export for convenience
+export { FREE_PLAN, PRO_PLAN };
 
 export async function getUserSubscription(userId: string) {
   const user = await prisma.user.findUnique({

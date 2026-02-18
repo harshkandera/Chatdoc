@@ -20,8 +20,18 @@ export type UserModel = runtime.Types.Result.DefaultSelection<Prisma.$UserPayloa
 
 export type AggregateUser = {
   _count: UserCountAggregateOutputType | null
+  _avg: UserAvgAggregateOutputType | null
+  _sum: UserSumAggregateOutputType | null
   _min: UserMinAggregateOutputType | null
   _max: UserMaxAggregateOutputType | null
+}
+
+export type UserAvgAggregateOutputType = {
+  reindexCount: number | null
+}
+
+export type UserSumAggregateOutputType = {
+  reindexCount: number | null
 }
 
 export type UserMinAggregateOutputType = {
@@ -36,6 +46,8 @@ export type UserMinAggregateOutputType = {
   variantId: string | null
   status: string | null
   currentPeriodEnd: Date | null
+  reindexCount: number | null
+  lastReindexAt: Date | null
 }
 
 export type UserMaxAggregateOutputType = {
@@ -50,6 +62,8 @@ export type UserMaxAggregateOutputType = {
   variantId: string | null
   status: string | null
   currentPeriodEnd: Date | null
+  reindexCount: number | null
+  lastReindexAt: Date | null
 }
 
 export type UserCountAggregateOutputType = {
@@ -64,9 +78,19 @@ export type UserCountAggregateOutputType = {
   variantId: number
   status: number
   currentPeriodEnd: number
+  reindexCount: number
+  lastReindexAt: number
   _all: number
 }
 
+
+export type UserAvgAggregateInputType = {
+  reindexCount?: true
+}
+
+export type UserSumAggregateInputType = {
+  reindexCount?: true
+}
 
 export type UserMinAggregateInputType = {
   id?: true
@@ -80,6 +104,8 @@ export type UserMinAggregateInputType = {
   variantId?: true
   status?: true
   currentPeriodEnd?: true
+  reindexCount?: true
+  lastReindexAt?: true
 }
 
 export type UserMaxAggregateInputType = {
@@ -94,6 +120,8 @@ export type UserMaxAggregateInputType = {
   variantId?: true
   status?: true
   currentPeriodEnd?: true
+  reindexCount?: true
+  lastReindexAt?: true
 }
 
 export type UserCountAggregateInputType = {
@@ -108,6 +136,8 @@ export type UserCountAggregateInputType = {
   variantId?: true
   status?: true
   currentPeriodEnd?: true
+  reindexCount?: true
+  lastReindexAt?: true
   _all?: true
 }
 
@@ -149,6 +179,18 @@ export type UserAggregateArgs<ExtArgs extends runtime.Types.Extensions.InternalA
   /**
    * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
    * 
+   * Select which fields to average
+  **/
+  _avg?: UserAvgAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   * 
+   * Select which fields to sum
+  **/
+  _sum?: UserSumAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   * 
    * Select which fields to find the minimum value
   **/
   _min?: UserMinAggregateInputType
@@ -179,6 +221,8 @@ export type UserGroupByArgs<ExtArgs extends runtime.Types.Extensions.InternalArg
   take?: number
   skip?: number
   _count?: UserCountAggregateInputType | true
+  _avg?: UserAvgAggregateInputType
+  _sum?: UserSumAggregateInputType
   _min?: UserMinAggregateInputType
   _max?: UserMaxAggregateInputType
 }
@@ -195,7 +239,11 @@ export type UserGroupByOutputType = {
   variantId: string | null
   status: string | null
   currentPeriodEnd: Date | null
+  reindexCount: number
+  lastReindexAt: Date | null
   _count: UserCountAggregateOutputType | null
+  _avg: UserAvgAggregateOutputType | null
+  _sum: UserSumAggregateOutputType | null
   _min: UserMinAggregateOutputType | null
   _max: UserMaxAggregateOutputType | null
 }
@@ -230,6 +278,8 @@ export type UserWhereInput = {
   variantId?: Prisma.StringNullableFilter<"User"> | string | null
   status?: Prisma.StringNullableFilter<"User"> | string | null
   currentPeriodEnd?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
+  reindexCount?: Prisma.IntFilter<"User"> | number
+  lastReindexAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   Chat?: Prisma.ChatListRelationFilter
   Workspace?: Prisma.WorkspaceListRelationFilter
 }
@@ -246,6 +296,8 @@ export type UserOrderByWithRelationInput = {
   variantId?: Prisma.SortOrderInput | Prisma.SortOrder
   status?: Prisma.SortOrderInput | Prisma.SortOrder
   currentPeriodEnd?: Prisma.SortOrderInput | Prisma.SortOrder
+  reindexCount?: Prisma.SortOrder
+  lastReindexAt?: Prisma.SortOrderInput | Prisma.SortOrder
   Chat?: Prisma.ChatOrderByRelationAggregateInput
   Workspace?: Prisma.WorkspaceOrderByRelationAggregateInput
 }
@@ -265,6 +317,8 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   variantId?: Prisma.StringNullableFilter<"User"> | string | null
   status?: Prisma.StringNullableFilter<"User"> | string | null
   currentPeriodEnd?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
+  reindexCount?: Prisma.IntFilter<"User"> | number
+  lastReindexAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   Chat?: Prisma.ChatListRelationFilter
   Workspace?: Prisma.WorkspaceListRelationFilter
 }, "id" | "email" | "subscriptionId" | "customerId">
@@ -281,9 +335,13 @@ export type UserOrderByWithAggregationInput = {
   variantId?: Prisma.SortOrderInput | Prisma.SortOrder
   status?: Prisma.SortOrderInput | Prisma.SortOrder
   currentPeriodEnd?: Prisma.SortOrderInput | Prisma.SortOrder
+  reindexCount?: Prisma.SortOrder
+  lastReindexAt?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.UserCountOrderByAggregateInput
+  _avg?: Prisma.UserAvgOrderByAggregateInput
   _max?: Prisma.UserMaxOrderByAggregateInput
   _min?: Prisma.UserMinOrderByAggregateInput
+  _sum?: Prisma.UserSumOrderByAggregateInput
 }
 
 export type UserScalarWhereWithAggregatesInput = {
@@ -301,6 +359,8 @@ export type UserScalarWhereWithAggregatesInput = {
   variantId?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
   status?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
   currentPeriodEnd?: Prisma.DateTimeNullableWithAggregatesFilter<"User"> | Date | string | null
+  reindexCount?: Prisma.IntWithAggregatesFilter<"User"> | number
+  lastReindexAt?: Prisma.DateTimeNullableWithAggregatesFilter<"User"> | Date | string | null
 }
 
 export type UserCreateInput = {
@@ -315,6 +375,8 @@ export type UserCreateInput = {
   variantId?: string | null
   status?: string | null
   currentPeriodEnd?: Date | string | null
+  reindexCount?: number
+  lastReindexAt?: Date | string | null
   Chat?: Prisma.ChatCreateNestedManyWithoutUserInput
   Workspace?: Prisma.WorkspaceCreateNestedManyWithoutUserInput
 }
@@ -331,6 +393,8 @@ export type UserUncheckedCreateInput = {
   variantId?: string | null
   status?: string | null
   currentPeriodEnd?: Date | string | null
+  reindexCount?: number
+  lastReindexAt?: Date | string | null
   Chat?: Prisma.ChatUncheckedCreateNestedManyWithoutUserInput
   Workspace?: Prisma.WorkspaceUncheckedCreateNestedManyWithoutUserInput
 }
@@ -347,6 +411,8 @@ export type UserUpdateInput = {
   variantId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   currentPeriodEnd?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reindexCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   Chat?: Prisma.ChatUpdateManyWithoutUserNestedInput
   Workspace?: Prisma.WorkspaceUpdateManyWithoutUserNestedInput
 }
@@ -363,6 +429,8 @@ export type UserUncheckedUpdateInput = {
   variantId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   currentPeriodEnd?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reindexCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   Chat?: Prisma.ChatUncheckedUpdateManyWithoutUserNestedInput
   Workspace?: Prisma.WorkspaceUncheckedUpdateManyWithoutUserNestedInput
 }
@@ -379,6 +447,8 @@ export type UserCreateManyInput = {
   variantId?: string | null
   status?: string | null
   currentPeriodEnd?: Date | string | null
+  reindexCount?: number
+  lastReindexAt?: Date | string | null
 }
 
 export type UserUpdateManyMutationInput = {
@@ -393,6 +463,8 @@ export type UserUpdateManyMutationInput = {
   variantId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   currentPeriodEnd?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reindexCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type UserUncheckedUpdateManyInput = {
@@ -407,6 +479,8 @@ export type UserUncheckedUpdateManyInput = {
   variantId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   currentPeriodEnd?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reindexCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type UserScalarRelationFilter = {
@@ -426,6 +500,12 @@ export type UserCountOrderByAggregateInput = {
   variantId?: Prisma.SortOrder
   status?: Prisma.SortOrder
   currentPeriodEnd?: Prisma.SortOrder
+  reindexCount?: Prisma.SortOrder
+  lastReindexAt?: Prisma.SortOrder
+}
+
+export type UserAvgOrderByAggregateInput = {
+  reindexCount?: Prisma.SortOrder
 }
 
 export type UserMaxOrderByAggregateInput = {
@@ -440,6 +520,8 @@ export type UserMaxOrderByAggregateInput = {
   variantId?: Prisma.SortOrder
   status?: Prisma.SortOrder
   currentPeriodEnd?: Prisma.SortOrder
+  reindexCount?: Prisma.SortOrder
+  lastReindexAt?: Prisma.SortOrder
 }
 
 export type UserMinOrderByAggregateInput = {
@@ -454,6 +536,12 @@ export type UserMinOrderByAggregateInput = {
   variantId?: Prisma.SortOrder
   status?: Prisma.SortOrder
   currentPeriodEnd?: Prisma.SortOrder
+  reindexCount?: Prisma.SortOrder
+  lastReindexAt?: Prisma.SortOrder
+}
+
+export type UserSumOrderByAggregateInput = {
+  reindexCount?: Prisma.SortOrder
 }
 
 export type UserCreateNestedOneWithoutChatInput = {
@@ -472,6 +560,14 @@ export type UserUpdateOneRequiredWithoutChatNestedInput = {
 
 export type NullableDateTimeFieldUpdateOperationsInput = {
   set?: Date | string | null
+}
+
+export type IntFieldUpdateOperationsInput = {
+  set?: number
+  increment?: number
+  decrement?: number
+  multiply?: number
+  divide?: number
 }
 
 export type UserCreateNestedOneWithoutWorkspaceInput = {
@@ -500,6 +596,8 @@ export type UserCreateWithoutChatInput = {
   variantId?: string | null
   status?: string | null
   currentPeriodEnd?: Date | string | null
+  reindexCount?: number
+  lastReindexAt?: Date | string | null
   Workspace?: Prisma.WorkspaceCreateNestedManyWithoutUserInput
 }
 
@@ -515,6 +613,8 @@ export type UserUncheckedCreateWithoutChatInput = {
   variantId?: string | null
   status?: string | null
   currentPeriodEnd?: Date | string | null
+  reindexCount?: number
+  lastReindexAt?: Date | string | null
   Workspace?: Prisma.WorkspaceUncheckedCreateNestedManyWithoutUserInput
 }
 
@@ -546,6 +646,8 @@ export type UserUpdateWithoutChatInput = {
   variantId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   currentPeriodEnd?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reindexCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   Workspace?: Prisma.WorkspaceUpdateManyWithoutUserNestedInput
 }
 
@@ -561,6 +663,8 @@ export type UserUncheckedUpdateWithoutChatInput = {
   variantId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   currentPeriodEnd?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reindexCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   Workspace?: Prisma.WorkspaceUncheckedUpdateManyWithoutUserNestedInput
 }
 
@@ -576,6 +680,8 @@ export type UserCreateWithoutWorkspaceInput = {
   variantId?: string | null
   status?: string | null
   currentPeriodEnd?: Date | string | null
+  reindexCount?: number
+  lastReindexAt?: Date | string | null
   Chat?: Prisma.ChatCreateNestedManyWithoutUserInput
 }
 
@@ -591,6 +697,8 @@ export type UserUncheckedCreateWithoutWorkspaceInput = {
   variantId?: string | null
   status?: string | null
   currentPeriodEnd?: Date | string | null
+  reindexCount?: number
+  lastReindexAt?: Date | string | null
   Chat?: Prisma.ChatUncheckedCreateNestedManyWithoutUserInput
 }
 
@@ -622,6 +730,8 @@ export type UserUpdateWithoutWorkspaceInput = {
   variantId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   currentPeriodEnd?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reindexCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   Chat?: Prisma.ChatUpdateManyWithoutUserNestedInput
 }
 
@@ -637,6 +747,8 @@ export type UserUncheckedUpdateWithoutWorkspaceInput = {
   variantId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   currentPeriodEnd?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  reindexCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   Chat?: Prisma.ChatUncheckedUpdateManyWithoutUserNestedInput
 }
 
@@ -692,6 +804,8 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   variantId?: boolean
   status?: boolean
   currentPeriodEnd?: boolean
+  reindexCount?: boolean
+  lastReindexAt?: boolean
   Chat?: boolean | Prisma.User$ChatArgs<ExtArgs>
   Workspace?: boolean | Prisma.User$WorkspaceArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
@@ -709,6 +823,8 @@ export type UserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   variantId?: boolean
   status?: boolean
   currentPeriodEnd?: boolean
+  reindexCount?: boolean
+  lastReindexAt?: boolean
 }, ExtArgs["result"]["user"]>
 
 export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -723,6 +839,8 @@ export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   variantId?: boolean
   status?: boolean
   currentPeriodEnd?: boolean
+  reindexCount?: boolean
+  lastReindexAt?: boolean
 }, ExtArgs["result"]["user"]>
 
 export type UserSelectScalar = {
@@ -737,9 +855,11 @@ export type UserSelectScalar = {
   variantId?: boolean
   status?: boolean
   currentPeriodEnd?: boolean
+  reindexCount?: boolean
+  lastReindexAt?: boolean
 }
 
-export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "name" | "imageUrl" | "createdAt" | "updatedAt" | "subscriptionId" | "customerId" | "variantId" | "status" | "currentPeriodEnd", ExtArgs["result"]["user"]>
+export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "name" | "imageUrl" | "createdAt" | "updatedAt" | "subscriptionId" | "customerId" | "variantId" | "status" | "currentPeriodEnd" | "reindexCount" | "lastReindexAt", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   Chat?: boolean | Prisma.User$ChatArgs<ExtArgs>
   Workspace?: boolean | Prisma.User$WorkspaceArgs<ExtArgs>
@@ -766,6 +886,8 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     variantId: string | null
     status: string | null
     currentPeriodEnd: Date | null
+    reindexCount: number
+    lastReindexAt: Date | null
   }, ExtArgs["result"]["user"]>
   composites: {}
 }
@@ -1202,6 +1324,8 @@ export interface UserFieldRefs {
   readonly variantId: Prisma.FieldRef<"User", 'String'>
   readonly status: Prisma.FieldRef<"User", 'String'>
   readonly currentPeriodEnd: Prisma.FieldRef<"User", 'DateTime'>
+  readonly reindexCount: Prisma.FieldRef<"User", 'Int'>
+  readonly lastReindexAt: Prisma.FieldRef<"User", 'DateTime'>
 }
     
 

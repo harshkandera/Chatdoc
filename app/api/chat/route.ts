@@ -2,10 +2,17 @@ import { currentUser } from "@clerk/nextjs/server";
 import { createChat } from "@/lib/chat/createChat";
 import { storeMessage } from "@/lib/chat/storeMessage";
 import { prisma } from "@/lib/db/prisma";
-import { handleQuery } from "@/lib/ai/query/handler";
-import { ModelProvider } from "@/lib/ai/models";
+import { searchContext, checkEscalation } from "@/lib/ai/query/handler";
+import type { ModelProvider } from "@/lib/ai/models";
+import { getModelOption } from "@/lib/ai/model-options";
 import { ensureUser } from "@/lib/db/user";
 import { polar } from "@/lib/polar";
+import { streamText, convertToModelMessages } from "ai";
+import { getAIModel } from "@/lib/ai/providers";
+import { ANSWER_SYSTEM_PROMPT_TEXT } from "@/lib/ai/query/generate";
+import { traceable } from "langsmith/traceable";
+
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   const requestStart = Date.now();
@@ -22,7 +29,6 @@ export async function POST(req: Request) {
 
   const userId = user.id;
 
-  // JIT Provisioning: Ensure user exists in local DB
   await ensureUser({
     id: userId,
     email: user.emailAddresses[0]?.emailAddress || "",
@@ -32,30 +38,57 @@ export async function POST(req: Request) {
 
   const body = await req.json();
 
-  const { chatId, message, model, provider = "groq", workspaceId } = body;
+  const {
+    messages: chatMessages,
+    message: legacyMessage,
+    chatId,
+    modelOptionId,
+    provider: rawProvider,
+    modelId: rawModelId,
+    workspaceId,
+  } = body;
+
+  const modelOption = modelOptionId ? getModelOption(modelOptionId) : null;
+  const provider: ModelProvider =
+    modelOption?.provider || rawProvider || "groq";
+  const modelId: string | undefined =
+    modelOption?.modelId || rawModelId || undefined;
+
+  // Extract latest user message text
+  let messageText: string;
+  if (chatMessages && chatMessages.length > 0) {
+    const lastMsg = chatMessages[chatMessages.length - 1];
+    messageText =
+      lastMsg.parts?.find(
+        (p: { type: string; text?: string }) => p.type === "text",
+      )?.text ||
+      lastMsg.content ||
+      "";
+  } else {
+    messageText = legacyMessage || "";
+  }
+
   console.log(
-    `📝 [+${Date.now() - requestStart}ms] Message: "${message.slice(0, 50)}..." | Provider: ${provider}`,
+    `📝 [+${Date.now() - requestStart}ms] Message: "${messageText.slice(0, 50)}..." | Provider: ${provider}`,
   );
 
-  if (!message) {
+  if (!messageText) {
     return new Response("Message is required", { status: 400 });
   }
 
   let activeChatId = chatId;
   let activeWorkspaceId = workspaceId;
 
-  // Create chat if needed
   if (!activeChatId) {
     const chat = await createChat({
       userId,
-      title: message.slice(0, 40),
-      model,
+      title: messageText.slice(0, 40),
+      model: modelId,
       provider,
       workspaceId: activeWorkspaceId,
     });
     activeChatId = chat.id;
   } else if (!activeWorkspaceId) {
-    // Get workspace from existing chat
     const chat = await prisma.chat.findUnique({
       where: { id: activeChatId },
       select: { workspaceId: true },
@@ -63,126 +96,205 @@ export async function POST(req: Request) {
     activeWorkspaceId = chat?.workspaceId;
   }
 
-  // Store user message
   console.log(`💾 [+${Date.now() - requestStart}ms] Storing user message...`);
   await storeMessage({
     chatId: activeChatId,
     role: "user",
-    content: message,
+    content: messageText,
   });
   console.log(`✅ [+${Date.now() - requestStart}ms] User message stored`);
 
-  // If no workspace, return error (need to select workspace first)
-
   if (!activeWorkspaceId) {
-    return Response.json({
-      chatId: activeChatId,
-      error:
-        "No workspace selected. Please select a documentation workspace first.",
-    });
+    return new Response(
+      "No workspace selected. Please select a documentation workspace first.",
+      { status: 400 },
+    );
   }
 
-  // Check workspace and DocSource status
   const workspace = await prisma.workspace.findUnique({
     where: { id: activeWorkspaceId },
     include: { DocSource: true },
   });
 
   if (!workspace || workspace.DocSource.status !== "ready") {
-    return Response.json({
-      chatId: activeChatId,
-      error:
-        "Documentation is not ready. Please wait for indexing to complete.",
-    });
+    return new Response(
+      "Documentation is not ready. Please wait for indexing to complete.",
+      { status: 400 },
+    );
   }
 
-  try {
-    // Get AI response using RAG pipeline
-    console.log(
-      `\n🤖 [+${Date.now() - requestStart}ms] Starting RAG pipeline...`,
-    );
-    const startTime = Date.now();
+  // ── Step 1: RAG Search (synchronous — get context chunks) ──
+  console.log(`🔍 [+${Date.now() - requestStart}ms] Running RAG search...`);
 
-    const result = await handleQuery(message, activeWorkspaceId, {
-      provider: provider as ModelProvider,
-    });
+  // Groq has a strict 6k-8k input token limit on free tier (or 12k TPM)
+  // We must be conservative with context window
+  const isGroq = provider === "groq";
+  const safeTopK = isGroq ? 2 : 5;
 
-    const latencyMs = Date.now() - startTime;
-    console.log(
-      `✅ [+${Date.now() - requestStart}ms] RAG complete in ${latencyMs}ms`,
-    );
-
-    // Build response with sources
-    let content = result.content;
-    if (result.sources.length > 0) {
-      content += "\n\n---\n**Sources:**\n";
-      result.sources.forEach((source, i) => {
-        content += `- [${i + 1}] ${source}\n`;
-      });
-    }
-
-    // Store assistant message
-    console.log(
-      `💾 [+${Date.now() - requestStart}ms] Storing assistant response...`,
-    );
-    await storeMessage({
-      chatId: activeChatId,
-      role: "assistant",
-      content,
-      latencyMs,
-    });
-    console.log(
-      `🏁 [+${Date.now() - requestStart}ms] ========== CHAT REQUEST COMPLETE ==========\n`,
-    );
-
-    // Ingest meter event to Polar for usage tracking
-    try {
-      const dbUser = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { customerId: true },
-      });
-
-      if (dbUser?.customerId) {
-        await polar.events.ingest({
-          events: [
-            {
-              name: "chat_query",
-              externalCustomerId: dbUser.customerId,
-              metadata: {
-                workspaceId: activeWorkspaceId,
-                provider: provider,
-                latencyMs: latencyMs.toString(),
-              },
-            },
-          ],
+  // ── Wrap the RAG + stream pipeline in a LangSmith root span ──
+  // Everything inside this traceable becomes child spans of "chat-request".
+  // Auth, message parsing, and DB writes stay outside to keep traces clean.
+  const runPipeline = traceable(
+    async () => {
+      let search;
+      try {
+        search = await searchContext(messageText, activeWorkspaceId!, {
+          provider,
+          modelId,
+          topK: safeTopK,
         });
-        console.log(
-          `📊 [Polar] Meter event ingested for customer ${dbUser.customerId}`,
-        );
+      } catch (error) {
+        console.error("RAG search failed:", error);
+        throw error;
       }
-    } catch (meterError) {
-      console.error("[Polar] Failed to ingest meter event:", meterError);
-    }
 
-    return Response.json({
-      chatId: activeChatId,
-      content,
-      sources: result.sources,
-      confidence: result.confidence,
-      wasDecomposed: result.wasDecomposed,
-    });
-  } catch (error) {
-    console.error("Chat error:", error);
+      console.log(
+        `✅ [+${Date.now() - requestStart}ms] RAG search complete: ${search.chunks.length} chunks, confidence=${search.confidence}`,
+      );
 
-    const errorMessage =
-      error instanceof Error ? error.message : "Failed to generate response";
+      // ── Step 2: Check if agent escalation is needed ──
+      let systemPrompt = search.systemPrompt;
 
-    return Response.json(
-      {
+      if (search.confidence === "low" && search.chunks.length < 2) {
+        console.log(
+          `🔄 [+${Date.now() - requestStart}ms] Low confidence — checking escalation...`,
+        );
+        const escalation = await checkEscalation(
+          messageText,
+          activeWorkspaceId!,
+          search,
+        );
+        if (escalation) {
+          console.log(
+            `🧪 [+${Date.now() - requestStart}ms] Agent provided answer (${escalation.answer.length} chars)`,
+          );
+          systemPrompt = `${ANSWER_SYSTEM_PROMPT_TEXT}
+
+The following answer was generated by a deep research agent that searched web documentation.
+Use it as your primary source and rephrase it clearly for the user.
+Cite sources where provided.
+
+Agent Research Result:
+${escalation.answer}
+
+Sources:
+${escalation.sources.map((s, i) => `[${i + 1}] ${s}`).join("\n")}`;
+        }
+      }
+
+      // ── Step 3: Stream answer using AI SDK streamText ──
+      console.log(
+        `🧠 [+${Date.now() - requestStart}ms] Streaming answer with ${provider}/${modelId || "default"}...`,
+      );
+
+      // Convert UIMessages from useChat to CoreMessages for streamText.
+      // SLIDING WINDOW: Only send the last 6 messages (3 user + 3 assistant turns)
+      let coreMessages: Parameters<typeof streamText>[0]["messages"];
+      if (chatMessages && chatMessages.length > 0) {
+        try {
+          const MAX_HISTORY_MESSAGES = 6;
+          const windowedMessages =
+            chatMessages.length > MAX_HISTORY_MESSAGES
+              ? chatMessages.slice(-MAX_HISTORY_MESSAGES)
+              : chatMessages;
+          console.log(
+            `📜 [history] Sending ${windowedMessages.length}/${chatMessages.length} messages (sliding window)`,
+          );
+          coreMessages = await convertToModelMessages(windowedMessages);
+        } catch {
+          coreMessages = [{ role: "user" as const, content: messageText }];
+        }
+      } else {
+        coreMessages = [{ role: "user" as const, content: messageText }];
+      }
+
+      const MAX_SYSTEM_PROMPT_CHARS = 13000;
+      if (systemPrompt.length > MAX_SYSTEM_PROMPT_CHARS) {
+        console.warn(
+          `⚠️ System prompt too long (${systemPrompt.length} chars). Truncating to ${MAX_SYSTEM_PROMPT_CHARS}...`,
+        );
+        systemPrompt =
+          systemPrompt.slice(0, MAX_SYSTEM_PROMPT_CHARS) + "...[truncated]";
+      }
+
+      return streamText({
+        model: getAIModel(provider, modelId),
+        system: systemPrompt,
+        messages: coreMessages,
+        experimental_telemetry: {
+          isEnabled: true,
+          functionId: "stream-answer",
+          metadata: {
+            chatId: activeChatId,
+            workspaceId: activeWorkspaceId,
+            provider,
+            confidence: search.confidence,
+          },
+        },
+        onError: ({ error }) => {
+          console.error(
+            `❌ [+${Date.now() - requestStart}ms] streamText error:`,
+            error,
+          );
+        },
+        onFinish: async ({ text }) => {
+          await storeMessage({
+            chatId: activeChatId,
+            role: "assistant",
+            content: text,
+          });
+          console.log(
+            `🏁 [+${Date.now() - requestStart}ms] ========== CHAT REQUEST COMPLETE ==========\n`,
+          );
+          try {
+            const dbUser = await prisma.user.findUnique({
+              where: { id: userId },
+              select: { customerId: true },
+            });
+            if (dbUser?.customerId) {
+              await polar.events.ingest({
+                events: [
+                  {
+                    name: "chat_query",
+                    externalCustomerId: dbUser.customerId,
+                    metadata: {
+                      workspaceId: activeWorkspaceId || "",
+                      provider,
+                    },
+                  },
+                ],
+              });
+            }
+          } catch (meterError) {
+            console.error("[Polar] Failed to ingest meter event:", meterError);
+          }
+        },
+      });
+    },
+    {
+      name: "chat-request",
+      run_type: "chain",
+      metadata: {
+        provider,
+        modelId,
         chatId: activeChatId,
-        error: errorMessage,
+        workspaceId: activeWorkspaceId,
       },
+    },
+  );
+
+  let result;
+  try {
+    result = await runPipeline();
+  } catch (error) {
+    return new Response(
+      error instanceof Error ? error.message : "Failed to search documentation",
       { status: 500 },
     );
   }
+
+  return result.toUIMessageStreamResponse({
+    sendStart: true,
+    headers: { "X-Chat-Id": activeChatId },
+  });
 }

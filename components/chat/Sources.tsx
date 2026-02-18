@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ExternalLink, ChevronDown, ChevronUp, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SourcesProps {
@@ -10,116 +9,117 @@ interface SourcesProps {
   className?: string;
 }
 
-function getDomain(url: string): string {
+function titleFromUrl(url: string): string {
   try {
-    const parsed = new URL(url);
-    return parsed.hostname;
+    const { pathname, hostname } = new URL(url);
+    if (!pathname || pathname === "/") return hostname;
+    const segments = pathname.split("/").filter(Boolean);
+    const last = segments[segments.length - 1] ?? "";
+    return (
+      last
+        .replace(/[-_]/g, " ")
+        .replace(/\.html?$/i, "")
+        .replace(/\b\w/g, (c) => c.toUpperCase())
+        .trim() || hostname
+    );
   } catch {
     return url;
   }
 }
 
-function getFavicon(url: string): string {
+function faviconUrl(url: string): string {
   try {
-    const parsed = new URL(url);
-    return `https://www.google.com/s2/favicons?domain=${parsed.hostname}&sz=32`;
+    const { hostname } = new URL(url);
+    return `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
   } catch {
     return "";
   }
 }
 
-function getDisplayTitle(url: string): string {
-  try {
-    const parsed = new URL(url);
-    const pathParts = parsed.pathname.split("/").filter(Boolean);
-    if (pathParts.length > 0) {
-      // Get last path segment and clean it up
-      const lastPart = pathParts[pathParts.length - 1];
-      return lastPart
-        .replace(/-/g, " ")
-        .replace(/_/g, " ")
-        .replace(/\.(html|htm|php|aspx)$/i, "")
-        .split(" ")
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(" ");
-    }
-    return parsed.hostname;
-  } catch {
-    return url;
+function SourceFavicon({ url }: { url: string }) {
+  const [failed, setFailed] = useState(false);
+  const src = faviconUrl(url);
+
+  if (failed || !src) {
+    return (
+      <div className="shrink-0 w-5 h-5 rounded-md bg-neutral-700 flex items-center justify-center">
+        <Globe className="w-3 h-3 text-neutral-400" />
+      </div>
+    );
   }
+
+  return (
+    <div className="shrink-0 w-5 h-5 rounded-md bg-neutral-800 flex items-center justify-center overflow-hidden">
+      <img
+        src={src}
+        alt=""
+        width={14}
+        height={14}
+        className="w-3.5 h-3.5 object-contain"
+        onError={() => setFailed(true)}
+      />
+    </div>
+  );
 }
 
 export function Sources({ sources, className }: SourcesProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [open, setOpen] = useState(false);
+  const unique = Array.from(new Set(sources));
+  const visible = open ? unique : unique.slice(0, 3);
 
-  if (!sources || sources.length === 0) return null;
-
-  // Remove duplicates
-  const uniqueSources = [...new Set(sources)];
-  const displayedSources = isExpanded
-    ? uniqueSources
-    : uniqueSources.slice(0, 3);
-  const hasMore = uniqueSources.length > 3;
+  if (unique.length === 0) return null;
 
   return (
-    <div className={cn("mt-4 pt-4 border-t border-white/[0.08]", className)}>
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-medium text-neutral-400 uppercase tracking-wide">
-          Sources ({uniqueSources.length})
+    <div className={cn("mt-3 w-full", className)}>
+      {/* Full-width divider — negative margin to escape MessageContent padding */}
+      {/* <div className="-mx-4 border-t border-neutral-800 mb-3" /> */}
+
+      {/* Header */}
+      <div className="flex items-center justify-between mb-2.5">
+        <span className="text-[10px] font-semibold tracking-widest text-neutral-500 uppercase">
+          Sources ({unique.length})
         </span>
-        {hasMore && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="text-xs text-neutral-400 hover:text-white h-6 px-2"
+        {unique.length > 3 && (
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="flex items-center gap-0.5 text-[11px] text-neutral-400 hover:text-neutral-200 transition-colors"
           >
-            {isExpanded ? (
-              <>
-                Show less <ChevronUp className="w-3 h-3 ml-1" />
-              </>
+            {open ? "Show less" : "Show all"}
+            {open ? (
+              <ChevronUp className="w-3 h-3" />
             ) : (
-              <>
-                Show all <ChevronDown className="w-3 h-3 ml-1" />
-              </>
+              <ChevronDown className="w-3 h-3" />
             )}
-          </Button>
+          </button>
         )}
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {displayedSources.map((source, index) => (
+      {/* Source chips — compact */}
+      <div className="flex flex-wrap gap-1.5">
+        {visible.map((src, i) => (
           <a
-            key={index}
-            href={source}
+            key={i}
+            href={src}
             target="_blank"
             rel="noopener noreferrer"
-            className="group flex items-center gap-2 px-3 py-2 bg-neutral-800/50 hover:bg-neutral-700/50 border border-white/[0.06] hover:border-white/[0.12] rounded-lg transition-all"
+            className={cn(
+              "group inline-flex items-center gap-1.5",
+              "pl-1.5 pr-2.5 py-1",
+              "rounded-lg",
+              "bg-neutral-900 hover:bg-neutral-800",
+              "border border-neutral-800 hover:border-neutral-700",
+              "transition-all duration-150",
+              "max-w-[180px]",
+            )}
           >
-            <img
-              src={getFavicon(source)}
-              alt=""
-              className="w-4 h-4 rounded-sm"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = "none";
-              }}
-            />
-            <span className="text-sm text-neutral-300 group-hover:text-white max-w-[200px] truncate">
-              {getDisplayTitle(source)}
+            <SourceFavicon url={src} />
+            <span className="text-[12px] font-medium text-neutral-300 group-hover:text-white truncate transition-colors leading-none">
+              {titleFromUrl(src)}
             </span>
-            <ExternalLink className="w-3 h-3 text-neutral-500 group-hover:text-neutral-300" />
+            <ExternalLink className="shrink-0 w-2.5 h-2.5 text-neutral-600 group-hover:text-neutral-400 transition-colors" />
           </a>
         ))}
       </div>
-
-      {/* Compact domain list for many sources */}
-      {isExpanded && uniqueSources.length > 6 && (
-        <div className="mt-3 pt-3 border-t border-white/[0.04]">
-          <div className="text-xs text-neutral-500">
-            Domains: {[...new Set(uniqueSources.map(getDomain))].join(", ")}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

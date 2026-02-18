@@ -3,10 +3,10 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useState, useEffect, startTransition } from "react";
 import { cn } from "@/lib/utils";
 
 interface MarkdownProps {
@@ -23,6 +23,17 @@ function CodeBlock({
   children: string;
 }) {
   const [copied, setCopied] = useState(false);
+  // Start with plain text, swap to highlighted after paint
+  const [isHighlighted, setIsHighlighted] = useState(false);
+
+  useEffect(() => {
+    // Defer syntax highlighting as a low-priority update so the browser
+    // can paint the plain code first and remain interactive.
+    // This prevents the "page frozen" freeze after streaming ends.
+    startTransition(() => {
+      setIsHighlighted(true);
+    });
+  }, [children]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(children);
@@ -46,24 +57,49 @@ function CodeBlock({
           )}
         </Button>
       </div>
-      <div className="rounded-lg overflow-hidden border border-white/[0.08]">
+      <div className="not-prose rounded-lg overflow-hidden border border-white/[0.08]">
         {language && (
           <div className="px-4 py-2 bg-neutral-900 border-b border-white/[0.08] text-xs text-neutral-400">
             {language}
           </div>
         )}
-        <SyntaxHighlighter
-          language={language || "text"}
-          style={oneDark}
-          customStyle={{
-            margin: 0,
-            padding: "1rem",
-            background: "#1a1a1a",
-            fontSize: "0.875rem",
-          }}
-        >
-          {children}
-        </SyntaxHighlighter>
+        {isHighlighted ? (
+          <SyntaxHighlighter
+            language={language || "text"}
+            style={vscDarkPlus}
+            customStyle={{
+              margin: 0,
+              padding: "1rem",
+              background: "#1a1a1a",
+              fontSize: "0.875rem",
+            }}
+            codeTagProps={{
+              style: {
+                fontFamily:
+                  "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+              },
+            }}
+          >
+            {children}
+          </SyntaxHighlighter>
+        ) : (
+          // Plain pre while waiting for highlight — no layout shift, no freeze
+          <pre
+            style={{
+              margin: 0,
+              padding: "1rem",
+              background: "#1a1a1a",
+              fontSize: "0.875rem",
+              fontFamily:
+                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+              overflowX: "auto",
+              color: "#d4d4d4",
+              whiteSpace: "pre",
+            }}
+          >
+            <code>{children}</code>
+          </pre>
+        )}
       </div>
     </div>
   );
@@ -130,11 +166,20 @@ export function Markdown({ content, className }: MarkdownProps) {
           ),
 
           // Inline code
-          code: ({ className, children }) => {
+          code: ({ className, children, ...props }) => {
             const match = /language-(\w+)/.exec(className || "");
-            const isInline = !match && !className;
+            // remark-gfm attaches node position via extra props
+            const node = (
+              props as {
+                node?: {
+                  position?: { start: { line: number }; end: { line: number } };
+                };
+              }
+            ).node;
+            const inline =
+              node?.position?.start.line === node?.position?.end.line;
 
-            if (isInline) {
+            if (inline) {
               return (
                 <code className="px-1.5 py-0.5 bg-neutral-800 text-neutral-200 rounded text-sm font-mono">
                   {children}

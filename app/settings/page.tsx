@@ -10,8 +10,24 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Loader2, CreditCard, ExternalLink, Zap } from "lucide-react";
+import {
+  Loader2,
+  CreditCard,
+  ExternalLink,
+  Zap,
+  RefreshCw,
+  Check,
+  X,
+  Crown,
+} from "lucide-react";
 import { UpgradeModal } from "@/components/chat/UpgradeModal";
+
+interface PlanConfig {
+  price: number;
+  workspaceLimit: number;
+  reindexLimit: number;
+  features: string[];
+}
 
 interface SubscriptionUsage {
   isPro: boolean;
@@ -19,6 +35,17 @@ interface SubscriptionUsage {
   count: number;
   limit: number;
   isReached: boolean;
+  reindex: {
+    used: number;
+    limit: number;
+    remaining: number;
+    resetsAt: string;
+  };
+  features: string[];
+  planConfig: {
+    free: PlanConfig;
+    pro: PlanConfig;
+  };
 }
 
 export default function SettingsPage() {
@@ -60,6 +87,31 @@ export default function SettingsPage() {
     );
   }
 
+  // Feature comparison data
+  const featureComparison = [
+    {
+      feature: "Documentation Sources",
+      free: `${usage?.planConfig?.free.workspaceLimit || 1}`,
+      pro: `${usage?.planConfig?.pro.workspaceLimit || 10}`,
+    },
+    {
+      feature: "Chat with Docs",
+      free: "Unlimited",
+      pro: "Unlimited",
+    },
+    {
+      feature: "Manual Re-Index",
+      free: `${usage?.planConfig?.free.reindexLimit || 1}x/month`,
+      pro: `${usage?.planConfig?.pro.reindexLimit || 5}x/month`,
+    },
+    { feature: "Auto Re-Index (Monthly)", free: false, pro: true },
+    { feature: "LangGraph AI Agent", free: false, pro: true },
+    { feature: "Web Search Fallback", free: false, pro: true },
+    { feature: "Deep Research", free: false, pro: true },
+    { feature: "Priority Support", free: false, pro: true },
+    { feature: "Early Access", free: false, pro: true },
+  ];
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-10">
       <div>
@@ -69,7 +121,7 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      {/* Subscription Section (Top Priority) */}
+      {/* Subscription Section */}
       <Card className="bg-white/5 border-white/10">
         <CardHeader>
           <CardTitle className="text-xl text-white flex items-center gap-2">
@@ -92,7 +144,8 @@ export default function SettingsPage() {
                     {usage?.plan} Plan
                   </h3>
                   {usage?.isPro && (
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs border border-emerald-500/30">
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs border border-emerald-500/30 flex items-center gap-1">
+                      <Crown className="w-3 h-3" />
                       Active
                     </span>
                   )}
@@ -124,33 +177,66 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {/* Usage Bar */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-neutral-300">Workspace Usage</span>
-                <span
-                  className={
-                    usage?.isReached ? "text-red-400" : "text-neutral-400"
-                  }
-                >
-                  {usage?.count} / {usage?.limit} workspaces used
-                </span>
+            {/* Usage Bars */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Workspace Usage */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-neutral-300">Workspaces</span>
+                  <span
+                    className={
+                      usage?.isReached ? "text-red-400" : "text-neutral-400"
+                    }
+                  >
+                    {usage?.count} / {usage?.limit}
+                  </span>
+                </div>
+                <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      usage?.isReached
+                        ? "bg-red-500"
+                        : usage?.isPro
+                          ? "bg-emerald-500"
+                          : "bg-blue-500"
+                    }`}
+                    style={{
+                      width: `${Math.min(((usage?.count || 0) / (usage?.limit || 1)) * 100, 100)}%`,
+                    }}
+                  />
+                </div>
               </div>
-              <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    usage?.isPro ? "bg-emerald-500" : "bg-blue-500"
-                  } ${usage?.isReached && "bg-red-500"}`}
-                  style={{
-                    width: `${Math.min(((usage?.count || 0) / (usage?.limit || 1)) * 100, 100)}%`,
-                  }}
-                />
+
+              {/* Re-Index Usage */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-neutral-300 flex items-center gap-1.5">
+                    <RefreshCw className="w-3 h-3" />
+                    Re-Indexes This Month
+                  </span>
+                  <span className="text-neutral-400">
+                    {usage?.reindex?.used || 0} / {usage?.reindex?.limit || 1}
+                  </span>
+                </div>
+                <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      (usage?.reindex?.remaining || 0) <= 0
+                        ? "bg-red-500"
+                        : "bg-purple-500"
+                    }`}
+                    style={{
+                      width: `${Math.min(((usage?.reindex?.used || 0) / (usage?.reindex?.limit || 1)) * 100, 100)}%`,
+                    }}
+                  />
+                </div>
+                <p className="text-xs text-neutral-500">
+                  Resets{" "}
+                  {usage?.reindex?.resetsAt
+                    ? new Date(usage.reindex.resetsAt).toLocaleDateString()
+                    : "next month"}
+                </p>
               </div>
-              <p className="text-xs text-neutral-500">
-                {usage?.isPro
-                  ? "You have access to extended limits with the Pro plan."
-                  : "Upgrade to Pro for unlimited workspaces and priority support."}
-              </p>
             </div>
           </div>
 
@@ -160,6 +246,78 @@ export default function SettingsPage() {
                 To manage invoices and payment methods, visit the Polar Billing
                 Portal.
               </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Plan Features Comparison */}
+      <Card className="bg-white/5 border-white/10">
+        <CardHeader>
+          <CardTitle className="text-xl text-white flex items-center gap-2">
+            <Zap className="w-5 h-5" />
+            Plan Features
+          </CardTitle>
+          <CardDescription className="text-neutral-400">
+            Compare what&apos;s included in each plan.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-hidden rounded-xl border border-white/5">
+            {/* Table Header */}
+            <div className="grid grid-cols-3 bg-white/5 px-4 py-3 text-sm font-medium">
+              <div className="text-neutral-400">Feature</div>
+              <div className="text-center text-neutral-400">Free</div>
+              <div className="text-center text-emerald-400 flex items-center justify-center gap-1.5">
+                <Crown className="w-3.5 h-3.5" />
+                Pro — ${usage?.planConfig?.pro.price || 19}/mo
+              </div>
+            </div>
+
+            {/* Table Rows */}
+            {featureComparison.map((row, i) => (
+              <div
+                key={row.feature}
+                className={`grid grid-cols-3 px-4 py-3 text-sm ${
+                  i % 2 === 0 ? "bg-transparent" : "bg-white/[0.02]"
+                } border-t border-white/5`}
+              >
+                <div className="text-neutral-300">{row.feature}</div>
+                <div className="text-center">
+                  {typeof row.free === "boolean" ? (
+                    row.free ? (
+                      <Check className="w-4 h-4 text-emerald-500 mx-auto" />
+                    ) : (
+                      <X className="w-4 h-4 text-neutral-600 mx-auto" />
+                    )
+                  ) : (
+                    <span className="text-neutral-400">{row.free}</span>
+                  )}
+                </div>
+                <div className="text-center">
+                  {typeof row.pro === "boolean" ? (
+                    row.pro ? (
+                      <Check className="w-4 h-4 text-emerald-500 mx-auto" />
+                    ) : (
+                      <X className="w-4 h-4 text-neutral-600 mx-auto" />
+                    )
+                  ) : (
+                    <span className="text-white font-medium">{row.pro}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {!usage?.isPro && (
+            <div className="mt-4 text-center">
+              <Button
+                onClick={() => setShowUpgradeModal(true)}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white"
+              >
+                <Zap className="w-4 h-4 mr-2" />
+                Upgrade to Pro
+              </Button>
             </div>
           )}
         </CardContent>

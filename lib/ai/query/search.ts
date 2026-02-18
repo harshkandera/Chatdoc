@@ -2,11 +2,11 @@ import { generateEmbedding } from "../embeddings";
 import { ModelProvider } from "../models";
 import { searchVectorsDeduped, SearchResult } from "../pinecone";
 import { rerank, RerankResult } from "./rerank";
-import { prisma } from "@/lib/db/prisma";
+import { classifyConfidence } from "../constants";
+import { traceable } from "langsmith/traceable";
 
 export interface SearchOptions {
   topK?: number;
-  useReranker?: boolean;
   provider?: ModelProvider;
 }
 
@@ -17,81 +17,77 @@ export interface SearchOutput {
 }
 
 /**
- * Search documentation with optional reranking
+ * Search documentation with optional reranking.
+ * Wrapped with traceable() so each vector search is a named span in LangSmith.
  */
-export async function searchDocs(
-  query: string,
-  workspaceId: string,
-  options: SearchOptions = {},
-): Promise<SearchOutput> {
-  const { topK = 5, useReranker = true, provider = "groq" } = options;
+export const searchDocs = traceable(
+  async (
+    query: string,
+    docSourceId: string,
+    options: SearchOptions = {},
+  ): Promise<SearchOutput> => {
+    const { topK = 5, provider = "groq" } = options;
 
-  // Get workspace to find docSourceId
-  const workspace = await prisma.workspace.findUnique({
-    where: { id: workspaceId },
-    select: { docSourceId: true },
-  });
+    if (!docSourceId) {
+      return {
+        chunks: [],
+        wasReranked: false,
+        confidence: "low",
+      };
+    }
 
-  if (!workspace?.docSourceId) {
+    const embedding = await generateEmbedding(query);
+
+    // Always overfetch so we can rerank if needed
+    const searchTopK = topK * 3;
+    const results = await searchVectorsDeduped(
+      embedding,
+      docSourceId,
+      searchTopK,
+    );
+
+    if (results.length === 0) {
+      return {
+        chunks: [],
+        wasReranked: false,
+        confidence: "low",
+      };
+    }
+
+    const rawTopScore = results[0]?.score || 0;
+    const rawConfidence = classifyConfidence(rawTopScore);
+
+    let finalChunks: SearchResult[];
+    let wasReranked = false;
+    let topScore: number;
+
+    // Smart reranking: only when medium confidence AND enough candidates
+    if (rawConfidence === "medium" && results.length > topK) {
+      const reranked = await rerank(query, results, topK, provider);
+      finalChunks = reranked.map((r: RerankResult) => ({
+        ...r.chunk,
+        score: r.relevanceScore,
+      }));
+      wasReranked = true;
+      topScore = reranked[0]?.relevanceScore || 0;
+    } else {
+      finalChunks = results.slice(0, topK);
+      topScore = rawTopScore;
+    }
+
+    const confidence = classifyConfidence(topScore);
+
     return {
-      chunks: [],
-      wasReranked: false,
-      confidence: "low",
+      chunks: finalChunks,
+      wasReranked,
+      confidence,
     };
-  }
-
-  // Generate embedding for query
-  const embedding = await generateEmbedding(query);
-
-  // Search with more results if we're going to rerank
-  const searchTopK = useReranker ? topK * 4 : topK;
-  const results = await searchVectorsDeduped(
-    embedding,
-    workspace.docSourceId,
-    searchTopK,
-  );
-
-  if (results.length === 0) {
-    return {
-      chunks: [],
-      wasReranked: false,
-      confidence: "low",
-    };
-  }
-
-  let finalChunks: SearchResult[];
-  let wasReranked = false;
-  let topScore: number;
-
-  if (useReranker && results.length > topK) {
-    // Rerank results
-    const reranked = await rerank(query, results, topK, provider);
-    finalChunks = reranked.map((r: RerankResult) => ({
-      ...r.chunk,
-      score: r.relevanceScore,
-    }));
-    wasReranked = true;
-    topScore = reranked[0]?.relevanceScore || 0;
-  } else {
-    // Use raw search results
-    finalChunks = results.slice(0, topK);
-    topScore = results[0]?.score || 0;
-  }
-
-  // Determine confidence based on top score
-  const confidence: "high" | "medium" | "low" =
-    topScore > 0.7 ? "high" : topScore > 0.4 ? "medium" : "low";
-
-  return {
-    chunks: finalChunks,
-    wasReranked,
-    confidence,
-  };
-}
+  },
+  { name: "search-docs", run_type: "retriever" },
+);
 
 export interface MultiSearchOptions {
   topKPerQuery?: number;
-  useReranker?: boolean;
   provider?: ModelProvider;
 }
 
@@ -101,45 +97,47 @@ export interface MultiSearchOutput {
 }
 
 /**
- * Search for multiple queries and combine results
+ * Search for multiple queries and combine results.
+ * Wrapped with traceable() so multi-query searches appear as a grouped span.
  */
-export async function searchMultiple(
-  queries: string[],
-  workspaceId: string,
-  options: MultiSearchOptions = {},
-): Promise<MultiSearchOutput> {
-  const { topKPerQuery = 3, useReranker = true, provider = "groq" } = options;
+export const searchMultiple = traceable(
+  async (
+    queries: string[],
+    docSourceId: string,
+    options: MultiSearchOptions = {},
+  ): Promise<MultiSearchOutput> => {
+    const { topKPerQuery = 3, provider = "groq" } = options;
 
-  const resultsMap = new Map<string, SearchOutput>();
-  const allChunks: SearchResult[] = [];
-  const seenUrls = new Set<string>();
+    const resultsMap = new Map<string, SearchOutput>();
+    const allChunks: SearchResult[] = [];
+    const seenUrls = new Set<string>();
 
-  // Search for each query in parallel
-  const searchPromises = queries.map(async (query) => {
-    const result = await searchDocs(query, workspaceId, {
-      topK: topKPerQuery,
-      useReranker,
-      provider,
+    const searchPromises = queries.map(async (query) => {
+      const result = await searchDocs(query, docSourceId, {
+        topK: topKPerQuery,
+        provider,
+      });
+      return { query, result };
     });
-    return { query, result };
-  });
 
-  const searchResults = await Promise.all(searchPromises);
+    const searchResults = await Promise.all(searchPromises);
 
-  // Collect and deduplicate results
-  for (const { query, result } of searchResults) {
-    resultsMap.set(query, result);
+    // Collect and deduplicate results
+    for (const { query, result } of searchResults) {
+      resultsMap.set(query, result);
 
-    for (const chunk of result.chunks) {
-      if (!seenUrls.has(chunk.metadata.url)) {
-        seenUrls.add(chunk.metadata.url);
-        allChunks.push(chunk);
+      for (const chunk of result.chunks) {
+        if (!seenUrls.has(chunk.metadata.url)) {
+          seenUrls.add(chunk.metadata.url);
+          allChunks.push(chunk);
+        }
       }
     }
-  }
 
-  return {
-    results: resultsMap,
-    allChunks,
-  };
-}
+    return {
+      results: resultsMap,
+      allChunks,
+    };
+  },
+  { name: "search-multiple", run_type: "retriever" },
+);

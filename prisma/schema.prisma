@@ -51,6 +51,10 @@ model User {
   status           String?     @default("free") // free, active, canceled, past_due
   currentPeriodEnd DateTime?
 
+  // Re-index tracking
+  reindexCount  Int       @default(0)   // Monthly re-index usage count
+  lastReindexAt DateTime?               // Last time user triggered a re-index
+
   Chat      Chat[]
   Workspace Workspace[]
 
@@ -85,6 +89,10 @@ model DocSource {
   lastIndexedAt DateTime?
   documentCount Int       @default(0)  // Number of pages scraped
   chunkCount    Int       @default(0)  // Number of chunks created
+  
+  // Re-indexing
+  lastAutoReindexAt DateTime?          // Last automatic (cron) re-index
+  failedUrls        String[]           // URLs that failed during scraping
   
   // Timestamps
   createdAt     DateTime  @default(now())
@@ -123,6 +131,9 @@ model Chunk {
   
   // Pinecone reference
   vectorId      String    @unique      // Maps to Pinecone vector ID
+  
+  // Smart re-indexing
+  contentHash   String?                // SHA-256 hash of content for change detection
   
   // Timestamps
   indexedAt     DateTime  @default(now())

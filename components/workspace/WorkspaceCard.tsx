@@ -1,10 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { FileText, ExternalLink, Loader2, CheckCircle } from "lucide-react";
+import {
+  FileText,
+  ExternalLink,
+  Loader2,
+  CheckCircle,
+  RefreshCw,
+  AlertTriangle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useDocSourceStatus } from "@/lib/hooks/useDocSourceStatus";
+import { useState } from "react";
 
 interface WorkspaceCardProps {
   id: string;
@@ -37,6 +45,9 @@ export function WorkspaceCard({
   lastIndexedAt,
   onStartIndexing,
 }: WorkspaceCardProps) {
+  const [reindexing, setReindexing] = useState(false);
+  const [reindexError, setReindexError] = useState<string | null>(null);
+
   // Use polling hook for real-time status
   const {
     status: dynamicStatus,
@@ -45,21 +56,52 @@ export function WorkspaceCard({
     chunkCount: dynamicChunkCount,
     isLoading,
     startPolling,
-  } = useDocSourceStatus(docSourceId); // Use docSourceId (derived from props/workspace)
+  } = useDocSourceStatus(docSourceId);
 
-  // Determine effective values (prefer dynamic if available/loaded, else initial)
-  // Logic: Only use dynamic values if they are not null (meaning hook has fetched data)
+  // Determine effective values
   const status = dynamicStatus || initialStatus;
   const statusMessage = dynamicStatusMessage || initialStatusMessage;
   const documentCount = dynamicDocumentCount ?? initialDocumentCount;
   const chunkCount = dynamicChunkCount ?? initialChunkCount;
 
+  // Handler for re-indexing
+  const handleReindex = async () => {
+    setReindexing(true);
+    setReindexError(null);
+
+    try {
+      const response = await fetch(`/api/workspaces/${id}/index`, {
+        method: "POST",
+      });
+
+      if (response.status === 429) {
+        const data = await response.json();
+        setReindexError(
+          `Re-index limit reached (${data.used}/${data.limit}). Resets ${new Date(data.resetsAt).toLocaleDateString()}.`,
+        );
+        setReindexing(false);
+        return;
+      }
+
+      if (!response.ok) {
+        const data = await response.json();
+        setReindexError(data.error || "Re-index failed");
+        setReindexing(false);
+        return;
+      }
+
+      // Success — start polling for status updates
+      startPolling();
+    } catch {
+      setReindexError("Network error. Please try again.");
+    } finally {
+      setReindexing(false);
+    }
+  };
+
   // Handler to trigger optimistic polling + API call
   const handleStartIndexing = async () => {
-    // 1. Immediately start polling (optimistic)
     startPolling();
-
-    // 2. Trigger the actual API call
     if (onStartIndexing) {
       onStartIndexing();
     }
@@ -161,6 +203,23 @@ export function WorkspaceCard({
         </div>
       )}
 
+      {/* Re-index success message (shown when ready + has message about re-index) */}
+      {status === "ready" &&
+        statusMessage &&
+        statusMessage.includes("Re-index") && (
+          <div className="mb-3 text-xs text-emerald-400 bg-emerald-500/5 rounded-lg px-3 py-2 border border-emerald-500/10">
+            ✓ {statusMessage}
+          </div>
+        )}
+
+      {/* Re-index error */}
+      {reindexError && (
+        <div className="mb-3 text-xs text-amber-400 bg-amber-500/5 rounded-lg px-3 py-2 border border-amber-500/10 flex items-start gap-2">
+          <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+          <span>{reindexError}</span>
+        </div>
+      )}
+
       {/* URL */}
       <a
         href={rootUrl}
@@ -196,12 +255,26 @@ export function WorkspaceCard({
       {/* Actions */}
       <div className="mt-auto pt-4 border-t border-white/6 flex gap-2">
         {status === "ready" ? (
-          <Button
-            asChild
-            className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white"
-          >
-            <Link href={`/chat?workspace=${id}`}>Open Chat</Link>
-          </Button>
+          <>
+            <Button
+              asChild
+              className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white"
+            >
+              <Link href={`/chat?workspace=${id}`}>Open Chat</Link>
+            </Button>
+            <Button
+              onClick={handleReindex}
+              disabled={reindexing || isIndexingStatus(status)}
+              variant="outline"
+              className="border-white/10 text-neutral-300 hover:text-white hover:bg-white/5 gap-1.5"
+              title="Smart re-index: only re-embeds changed pages"
+            >
+              <RefreshCw
+                className={cn("w-3.5 h-3.5", reindexing && "animate-spin")}
+              />
+              <span className="hidden sm:inline">Re-Index</span>
+            </Button>
+          </>
         ) : status === "error" ? (
           <Button
             onClick={handleStartIndexing}
