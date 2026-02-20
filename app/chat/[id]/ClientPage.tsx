@@ -116,15 +116,10 @@ export default function ClientPage({
       />
 
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col px-4 md:px-8">
-        {error && (
-          <div className="p-4 rounded-lg bg-destructive/10 text-destructive text-sm shrink-0">
-            {error}
-          </div>
-        )}
-
         <ChatMessages
           messages={messages}
           status={status}
+          error={error}
           onRetry={handleRetry}
         />
       </div>

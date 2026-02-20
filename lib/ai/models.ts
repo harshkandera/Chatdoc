@@ -1,7 +1,7 @@
 import { ChatGroq } from "@langchain/groq";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { ChatOpenAI } from "@langchain/openai";
-import { generateText } from "ai";
+import * as ai from "ai";
 import { getAIModel } from "./providers";
 
 export type { ModelProvider } from "./model-options";
@@ -47,6 +47,9 @@ export function getLLM(provider: ModelProvider = "groq", modelId?: string) {
 // ── AI SDK model calls (used by RAG pipeline) ──
 
 import { traceable } from "langsmith/traceable";
+import { wrapAISDK } from "langsmith/experimental/vercel";
+
+const { generateText: wrappedGenerateText } = wrapAISDK(ai);
 
 export const invokeModel = traceable(
   async (
@@ -54,7 +57,7 @@ export const invokeModel = traceable(
     messages: { role: "system" | "user" | "assistant"; content: string }[],
     modelId?: string,
   ): Promise<string> => {
-    const { text } = await generateText({
+    const { text } = await wrappedGenerateText({
       model: getAIModel(provider, modelId),
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
       experimental_telemetry: { isEnabled: true, functionId: "invokeModel" },

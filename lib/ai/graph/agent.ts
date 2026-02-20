@@ -16,20 +16,39 @@ import {
   agentTools,
 } from "./tools";
 import { buildAgentPrompt } from "./prompt";
-import {
-  VECTOR_CONFIDENCE_THRESHOLD,
-  RERANK_LOW_THRESHOLD,
-  MAX_AGENT_HOPS,
-  isInsufficientAnswer,
-} from "../constants";
+import { gradeContextSufficiency } from "./grader";
+import { MAX_AGENT_HOPS, isInsufficientAnswer } from "../constants";
 import type { StreamEvent } from "../types";
 
-// State annotation
+// ─── RETRY HELPER ───
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  retries: number = 1,
+  delayMs: number = 500,
+): Promise<T> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (attempt === retries) throw error;
+      console.warn(
+        `   ⚠️ Retry ${attempt + 1}/${retries}: ${(error as Error).message}`,
+      );
+      await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
+    }
+  }
+  throw new Error("Unreachable");
+}
+
+// ─── STATE ANNOTATION ───
+
 const StateAnnotation = Annotation.Root({
   query: Annotation<string>,
   docSourceId: Annotation<string>,
   docsSiteUrl: Annotation<string>,
   productName: Annotation<string>,
+  isPro: Annotation<boolean>,
   messages: Annotation<BaseMessage[]>({
     reducer: (x, y) => x.concat(y),
   }),
@@ -38,22 +57,30 @@ const StateAnnotation = Annotation.Root({
   webResults: Annotation<AgentState["webResults"]>,
   confidence: Annotation<AgentState["confidence"]>,
   topScore: Annotation<number>,
+  isContextSufficient: Annotation<boolean>,
   hopCount: Annotation<number>,
   usedWebFallback: Annotation<boolean>,
   answer: Annotation<string | undefined>,
   sources: Annotation<string[]>,
   finished: Annotation<boolean>,
   subQueries: Annotation<AgentState["subQueries"]>,
+  errors: Annotation<string[]>({
+    reducer: (x, y) => x.concat(y),
+  }),
 });
 
 type GraphState = typeof StateAnnotation.State;
 
 type OnStream = (event: StreamEvent) => void;
 
+const GRAPH_RECURSION_LIMIT = 25;
+
 // ─── NODES ───
 
-// 1. Retrieve Node (Deterministic Vector Search)
-async function retrieveNode(state: GraphState, config: RunnableConfig): Promise<Partial<GraphState>> {
+async function retrieveNode(
+  state: GraphState,
+  config: RunnableConfig,
+): Promise<Partial<GraphState>> {
   const onStream = config?.configurable?.onStream as OnStream | undefined;
   const start = Date.now();
   console.log(`\n🤖 [Graph] ──── retrieve ──── START`);
@@ -66,29 +93,86 @@ async function retrieveNode(state: GraphState, config: RunnableConfig): Promise<
     input: { query: state.query.slice(0, 80) },
   });
 
-  const results = await searchDocsFunction(state.query, state.docSourceId, 20);
+  try {
+    const results = await withRetry(
+      () => searchDocsFunction(state.query, state.docSourceId, 20),
+      1,
+    );
 
-  let topScore = 0;
-  if (results.length > 0) {
-    topScore = results[0].score;
+    const topScore = results.length > 0 ? results[0].score : 0;
+
+    console.log(
+      `🤖 [Graph] ──── retrieve ──── END (${Date.now() - start}ms) | ${results.length} results | topScore=${topScore.toFixed(3)}`,
+    );
+
+    const uniqueUrls = Array.from(
+      new Set(results.map((r) => r.metadata.url).filter(Boolean)),
+    ).slice(0, 3);
+
+    onStream?.({
+      type: "tool_end",
+      tool: "deep_vector_search",
+      result: {
+        chunks: results.length,
+        topScore: Number(topScore.toFixed(3)),
+        urls: uniqueUrls,
+      },
+    });
+
+    return { searchResults: results, topScore };
+  } catch (error) {
+    const msg = (error as Error).message;
+    console.error(`❌ [Graph] retrieve failed: ${msg}`);
+    onStream?.({
+      type: "tool_end",
+      tool: "deep_vector_search",
+      result: { error: msg },
+    });
+    return {
+      searchResults: [],
+      topScore: 0,
+      errors: [`retrieve: ${msg}`],
+    };
   }
+}
 
-  console.log(`🤖 [Graph] ──── retrieve ──── END (${Date.now() - start}ms) | ${results.length} results | topScore=${topScore.toFixed(3)}`);
+async function gradeContextNode(
+  state: GraphState,
+  config: RunnableConfig,
+): Promise<Partial<GraphState>> {
+  const onStream = config?.configurable?.onStream as OnStream | undefined;
+  const start = Date.now();
+  console.log(`\n🤖 [Graph] ──── grade_context ──── START`);
+  console.log(`   📊 Chunks to grade: ${state.searchResults.length}`);
+
+  onStream?.({
+    type: "tool_start",
+    tool: "context_grader",
+    input: { chunks: state.searchResults.length },
+  });
+
+  const isContextSufficient = await gradeContextSufficiency(
+    state.query,
+    state.searchResults,
+  );
+
+  console.log(
+    `🤖 [Graph] ──── grade_context ──── END (${Date.now() - start}ms) | isContextSufficient=${isContextSufficient}`,
+  );
 
   onStream?.({
     type: "tool_end",
-    tool: "deep_vector_search",
-    result: { chunks: results.length, topScore: Number(topScore.toFixed(3)) },
+    tool: "context_grader",
+    result: { isContextSufficient },
   });
 
-  return {
-    searchResults: results,
-    topScore,
-  };
+  return { isContextSufficient };
 }
 
-// 2. Rerank Node (Conditional)
-async function rerankNode(state: GraphState, config: RunnableConfig): Promise<Partial<GraphState>> {
+async function rerankNode(
+  state: GraphState,
+  config: RunnableConfig,
+): Promise<Partial<GraphState>> {
   const onStream = config?.configurable?.onStream as OnStream | undefined;
   const start = Date.now();
   console.log(`\n🤖 [Graph] ──── rerank ──── START`);
@@ -100,30 +184,51 @@ async function rerankNode(state: GraphState, config: RunnableConfig): Promise<Pa
     input: { candidates: state.searchResults.length },
   });
 
-  const candidates = state.searchResults.slice(0, 8);
-  const { reranked, confidence, topScore } = await rerankDocsFunction(
-    state.query,
-    candidates,
-    8,
-  );
+  try {
+    const candidates = state.searchResults.slice(0, 8);
+    const { reranked, confidence, topScore } = await withRetry(
+      () => rerankDocsFunction(state.query, candidates, 8),
+      1,
+    );
 
-  console.log(`🤖 [Graph] ──── rerank ──── END (${Date.now() - start}ms) | ${reranked.length} reranked | confidence=${confidence} | topScore=${topScore.toFixed(3)}`);
+    console.log(
+      `🤖 [Graph] ──── rerank ──── END (${Date.now() - start}ms) | ${reranked.length} reranked | confidence=${confidence} | topScore=${topScore.toFixed(3)}`,
+    );
 
-  onStream?.({
-    type: "tool_end",
-    tool: "deep_rerank",
-    result: { reranked: reranked.length, confidence, topScore: Number(topScore.toFixed(3)) },
-  });
+    onStream?.({
+      type: "tool_end",
+      tool: "deep_rerank",
+      result: {
+        reranked: reranked.length,
+        confidence,
+        topScore: Number(topScore.toFixed(3)),
+      },
+    });
 
-  return {
-    rerankedResults: reranked,
-    confidence: confidence as "high" | "medium" | "low",
-    topScore,
-  };
+    return {
+      rerankedResults: reranked,
+      confidence: confidence as "high" | "medium" | "low",
+      topScore,
+    };
+  } catch (error) {
+    const msg = (error as Error).message;
+    console.error(`❌ [Graph] rerank failed: ${msg}`);
+    onStream?.({
+      type: "tool_end",
+      tool: "deep_rerank",
+      result: { error: msg },
+    });
+    return {
+      rerankedResults: [],
+      errors: [`rerank: ${msg}`],
+    };
+  }
 }
 
-// 3. Generate Answer Node
-async function generateNode(state: GraphState, config: RunnableConfig): Promise<Partial<GraphState>> {
+async function generateNode(
+  state: GraphState,
+  config: RunnableConfig,
+): Promise<Partial<GraphState>> {
   const onStream = config?.configurable?.onStream as OnStream | undefined;
   const start = Date.now();
   console.log(`\n🤖 [Graph] ──── generate ──── START`);
@@ -133,7 +238,9 @@ async function generateNode(state: GraphState, config: RunnableConfig): Promise<
       ? state.rerankedResults
       : state.searchResults.slice(0, 5);
 
-  console.log(`   📚 Using ${chunks.length} chunks (${state.rerankedResults.length > 0 ? "reranked" : "raw search"})`);
+  console.log(
+    `   📚 Using ${chunks.length} chunks (${state.rerankedResults.length > 0 ? "reranked" : "raw search"})`,
+  );
 
   onStream?.({
     type: "tool_start",
@@ -141,35 +248,122 @@ async function generateNode(state: GraphState, config: RunnableConfig): Promise<
     input: { chunks: chunks.length },
   });
 
-  const { answer, sources } = await generateAnswerFunction(
-    state.query,
-    chunks,
-    state.productName,
-    false,
-  );
+  try {
+    const { answer, sources } = await generateAnswerFunction(
+      state.query,
+      chunks,
+      state.productName,
+      false,
+    );
 
-  const sufficient = !isInsufficientAnswer(answer);
-  console.log(`🤖 [Graph] ──── generate ──── END (${Date.now() - start}ms) | ${answer.length} chars | sufficient=${sufficient} | sources=${sources.length}`);
+    const sufficient = !isInsufficientAnswer(answer);
+    console.log(
+      `🤖 [Graph] ──── generate ──── END (${Date.now() - start}ms) | ${answer.length} chars | sufficient=${sufficient} | sources=${sources.length}`,
+    );
 
-  onStream?.({
-    type: "tool_end",
-    tool: "deep_generate",
-    result: { length: answer.length, sufficient, sources: sources.length },
-  });
+    onStream?.({
+      type: "tool_end",
+      tool: "deep_generate",
+      result: { length: answer.length, sufficient, sources: sources.length },
+    });
 
-  return {
-    answer,
-    sources,
-    finished: sufficient,
-  };
+    return { answer, sources, finished: sufficient };
+  } catch (error) {
+    const msg = (error as Error).message;
+    console.error(`❌ [Graph] generate failed: ${msg}`);
+    onStream?.({
+      type: "tool_end",
+      tool: "deep_generate",
+      result: { error: msg },
+    });
+    return {
+      answer: "I encountered an error generating an answer. Please try again.",
+      sources: [],
+      finished: true,
+      errors: [`generate: ${msg}`],
+    };
+  }
 }
 
-// 4. Web/Agent Node (Slow Path)
-async function webAgentNode(state: GraphState, config: RunnableConfig): Promise<Partial<GraphState>> {
+async function fallbackGenerateNode(
+  state: GraphState,
+  config: RunnableConfig,
+): Promise<Partial<GraphState>> {
+  const onStream = config?.configurable?.onStream as OnStream | undefined;
+  const start = Date.now();
+  console.log(`\n🤖 [Graph] ──── fallback_generate ──── START`);
+  console.log(
+    `   📚 Best-effort answer for free user (${state.searchResults.length} raw chunks)`,
+  );
+
+  onStream?.({
+    type: "tool_start",
+    tool: "fallback_generate",
+    input: { chunks: state.searchResults.length },
+  });
+
+  const chunks = state.searchResults.slice(0, 5);
+
+  if (chunks.length === 0) {
+    const answer = `I couldn't find relevant information about "${state.query}" in the ${state.productName} documentation.\n\n💡 **Upgrade to Pro** for access to Deep Research mode, which can search the official documentation directly for better answers.`;
+
+    onStream?.({
+      type: "tool_end",
+      tool: "fallback_generate",
+      result: { length: answer.length, fallback: true },
+    });
+
+    return { answer, sources: [], finished: true };
+  }
+
+  try {
+    const { answer, sources } = await generateAnswerFunction(
+      state.query,
+      chunks,
+      state.productName,
+      false,
+    );
+
+    const finalAnswer = `${answer}\n\n---\n💡 **Want better answers?** Upgrade to Pro for Deep Research mode, which searches official documentation directly when indexed content falls short.`;
+
+    console.log(
+      `🤖 [Graph] ──── fallback_generate ──── END (${Date.now() - start}ms) | ${finalAnswer.length} chars`,
+    );
+
+    onStream?.({
+      type: "tool_end",
+      tool: "fallback_generate",
+      result: { length: finalAnswer.length, fallback: true },
+    });
+
+    return { answer: finalAnswer, sources, finished: true };
+  } catch (error) {
+    const msg = (error as Error).message;
+    console.error(`❌ [Graph] fallback_generate failed: ${msg}`);
+    onStream?.({
+      type: "tool_end",
+      tool: "fallback_generate",
+      result: { error: msg },
+    });
+    return {
+      answer: "I encountered an error generating an answer. Please try again.",
+      sources: [],
+      finished: true,
+      errors: [`fallback_generate: ${msg}`],
+    };
+  }
+}
+
+async function webAgentNode(
+  state: GraphState,
+  config: RunnableConfig,
+): Promise<Partial<GraphState>> {
   const onStream = config?.configurable?.onStream as OnStream | undefined;
   const start = Date.now();
   console.log(`\n🤖 [Graph] ──── web_agent (Slow Path) ──── START`);
-  console.log(`   🌐 Product: ${state.productName} | Site: ${state.docsSiteUrl}`);
+  console.log(
+    `   🌐 Product: ${state.productName} | Site: ${state.docsSiteUrl}`,
+  );
   console.log(`   📨 Messages so far: ${state.messages.length}`);
 
   onStream?.({
@@ -178,135 +372,196 @@ async function webAgentNode(state: GraphState, config: RunnableConfig): Promise<
     input: { query: state.query.slice(0, 80), product: state.productName },
   });
 
-  let messages = state.messages;
-  if (messages.length === 0) {
-    console.log(`   🔧 Initializing agent with system prompt + user query`);
-    const systemPrompt = buildAgentPrompt(state.productName, state.docsSiteUrl);
-    messages = [new SystemMessage(systemPrompt), new HumanMessage(state.query)];
+  try {
+    let messages = state.messages;
+    if (messages.length === 0) {
+      console.log(`   🔧 Initializing agent with system prompt + user query`);
+      const systemPrompt = buildAgentPrompt(
+        state.productName,
+        state.docsSiteUrl,
+      );
+      messages = [
+        new SystemMessage(systemPrompt),
+        new HumanMessage(state.query),
+      ];
+    }
+
+    const model = new ChatGroq({
+      model: "llama-3.3-70b-versatile",
+      temperature: 0,
+    }).bindTools(agentTools);
+
+    const response = await withRetry(() => model.invoke(messages), 1, 1000);
+
+    const toolCalls = (response as AIMessage).tool_calls;
+    console.log(
+      `🤖 [Graph] ──── web_agent ──── END (${Date.now() - start}ms) | toolCalls=${toolCalls?.length ?? 0} | usedWebFallback=true`,
+    );
+    if (toolCalls?.length) {
+      toolCalls.forEach((tc, i) =>
+        console.log(
+          `   🔧 Tool[${i}]: ${tc.name}(${JSON.stringify(tc.args).slice(0, 80)})`,
+        ),
+      );
+    }
+
+    onStream?.({
+      type: "tool_end",
+      tool: "web_search_docs",
+      result: { toolCalls: toolCalls?.length ?? 0 },
+    });
+
+    return {
+      messages: [response],
+      usedWebFallback: true,
+      hopCount: state.hopCount + 1,
+    };
+  } catch (error) {
+    const msg = (error as Error).message;
+    console.error(`❌ [Graph] web_agent failed: ${msg}`);
+    onStream?.({
+      type: "tool_end",
+      tool: "web_search_docs",
+      result: { error: msg },
+    });
+    return {
+      hopCount: state.hopCount + 1,
+      usedWebFallback: true,
+      errors: [`web_agent: ${msg}`],
+    };
   }
-
-  const model = new ChatGroq({
-    model: "llama-3.3-70b-versatile",
-    temperature: 0,
-  }).bindTools(agentTools);
-
-  const response = await model.invoke(messages);
-
-  const toolCalls = (response as AIMessage).tool_calls;
-  console.log(`🤖 [Graph] ──── web_agent ──── END (${Date.now() - start}ms) | toolCalls=${toolCalls?.length ?? 0} | usedWebFallback=true`);
-  if (toolCalls?.length) {
-    toolCalls.forEach((tc, i) => console.log(`   🔧 Tool[${i}]: ${tc.name}(${JSON.stringify(tc.args).slice(0, 80)})`));
-  }
-
-  onStream?.({
-    type: "tool_end",
-    tool: "web_search_docs",
-    result: { toolCalls: toolCalls?.length ?? 0 },
-  });
-
-  return {
-    messages: [response],
-    usedWebFallback: true,
-    hopCount: state.hopCount + 1,
-  };
 }
 
 // ─── ROUTING LOGIC ───
+// Routing is based on semantic answerability (isContextSufficient),
+// NOT vector scores. Scores are kept for telemetry only.
 
-function routeRetrieve(state: GraphState): "generate" | "rerank" | "web_agent" {
-  const score = state.topScore;
-  let decision: "generate" | "rerank" | "web_agent";
-
-  if (score >= VECTOR_CONFIDENCE_THRESHOLD) {
-    decision = "generate";
-  } else if (score >= RERANK_LOW_THRESHOLD) {
-    decision = "rerank";
-  } else {
-    decision = "web_agent";
+function routeAfterGrade(
+  state: GraphState,
+): "rerank" | "web_agent" | "fallback_generate" {
+  if (state.isContextSufficient) {
+    console.log(
+      `🔀 [Graph] Route grade_context: isContextSufficient=true → rerank`,
+    );
+    return "rerank";
   }
 
-  console.log(`🔀 [Graph] Route retrieve: topScore=${score.toFixed(3)} | threshold_high=${VECTOR_CONFIDENCE_THRESHOLD} threshold_low=${RERANK_LOW_THRESHOLD} → ${decision}`);
-  return decision;
+  if (state.isPro && process.env.TAVILY_API_KEY) {
+    console.log(
+      `🔀 [Graph] Route grade_context: isContextSufficient=false + isPro → web_agent`,
+    );
+    return "web_agent";
+  }
+
+  console.log(
+    `🔀 [Graph] Route grade_context: isContextSufficient=false + free user → fallback_generate`,
+  );
+  return "fallback_generate";
 }
 
-function routeRerank(state: GraphState): "generate" | "web_agent" {
-  const decision = state.rerankedResults.length > 0 ? "generate" : "web_agent";
-  console.log(`🔀 [Graph] Route rerank: confidence=${state.confidence} | rerankedResults=${state.rerankedResults.length} → ${decision}`);
-  return decision;
-}
+function routeAfterGenerate(state: GraphState): "end" | "web_agent" {
+  if (state.finished) {
+    console.log(`🔀 [Graph] Route generate: sufficient answer → end`);
+    return "end";
+  }
 
-function routeGenerate(state: GraphState): "end" | "web_agent" {
-  const decision = state.finished ? "end" : "web_agent";
-  console.log(`🔀 [Graph] Route generate: finished=${state.finished} | answerLength=${state.answer?.length ?? 0} → ${decision}`);
-  return decision;
+  if (
+    state.isPro &&
+    process.env.TAVILY_API_KEY &&
+    state.hopCount < MAX_AGENT_HOPS
+  ) {
+    console.log(
+      `🔀 [Graph] Route generate: insufficient + isPro + hops=${state.hopCount} → web_agent`,
+    );
+    return "web_agent";
+  }
+
+  console.log(
+    `🔀 [Graph] Route generate: insufficient but cannot escalate → end`,
+  );
+  return "end";
 }
 
 function routeWebAgent(state: GraphState): "tools" | "end" {
   if (state.hopCount >= MAX_AGENT_HOPS) {
-    console.log(`🔀 [Graph] Route web_agent: hop limit reached (${state.hopCount}/${MAX_AGENT_HOPS}) → end`);
+    console.log(
+      `🔀 [Graph] Route web_agent: hop limit reached (${state.hopCount}/${MAX_AGENT_HOPS}) → end`,
+    );
     return "end";
   }
-  const lastMessage = state.messages[state.messages.length - 1] as AIMessage;
-  const hasToolCalls = !!lastMessage.tool_calls?.length;
+
+  if (state.errors.length > 3) {
+    console.log(
+      `🔀 [Graph] Route web_agent: too many errors (${state.errors.length}) → end`,
+    );
+    return "end";
+  }
+
+  const lastMessage = state.messages[state.messages.length - 1];
+  if (!lastMessage || lastMessage._getType() !== "ai") {
+    console.log(`🔀 [Graph] Route web_agent: no AI message → end`);
+    return "end";
+  }
+
+  const hasToolCalls = !!(lastMessage as AIMessage).tool_calls?.length;
   const decision = hasToolCalls ? "tools" : "end";
-  console.log(`🔀 [Graph] Route web_agent: hasToolCalls=${hasToolCalls} hopCount=${state.hopCount} → ${decision}`);
+  console.log(
+    `🔀 [Graph] Route web_agent: hasToolCalls=${hasToolCalls} hopCount=${state.hopCount} → ${decision}`,
+  );
   return decision;
 }
 
 // ─── GRAPH CONSTRUCTION ───
+//
+// retrieve → grade_context → routeAfterGrade
+//   ├─ sufficient    → rerank → generate → routeAfterGenerate
+//   │                                       ├─ sufficient → END
+//   │                                       └─ insufficient + Pro → web_agent
+//   ├─ insufficient + Pro  → web_agent → routeWebAgent
+//   │                                    ├─ tool_calls → tools → web_agent
+//   │                                    └─ no tool_calls → END
+//   └─ insufficient + Free → fallback_generate → END
 
 function buildGraph() {
   const workflow = new StateGraph(StateAnnotation)
     .addNode("retrieve", retrieveNode)
+    .addNode("grade_context", gradeContextNode)
     .addNode("rerank", rerankNode)
     .addNode("generate", generateNode)
+    .addNode("fallback_generate", fallbackGenerateNode)
     .addNode("web_agent", webAgentNode)
-    .addNode("tools", new ToolNode(agentTools)) // Standard ToolNode for agentTools
+    .addNode("tools", new ToolNode(agentTools))
 
-    // Start -> Retrieve
     .addEdge(START, "retrieve")
+    .addEdge("retrieve", "grade_context")
 
-    // Retrieve -> Router
-    .addConditionalEdges("retrieve", routeRetrieve, {
-      generate: "generate",
+    .addConditionalEdges("grade_context", routeAfterGrade, {
       rerank: "rerank",
       web_agent: "web_agent",
+      fallback_generate: "fallback_generate",
     })
 
-    // Rerank -> Router
-    .addConditionalEdges("rerank", routeRerank, {
-      generate: "generate",
+    .addEdge("rerank", "generate")
+
+    .addConditionalEdges("generate", routeAfterGenerate, {
+      end: END,
       web_agent: "web_agent",
     })
 
-    // Web Agent Loop
     .addConditionalEdges("web_agent", routeWebAgent, {
       tools: "tools",
       end: END,
     })
     .addEdge("tools", "web_agent")
 
-    // Generate -> Router (check if answer is sufficient)
-    .addConditionalEdges("generate", routeGenerate, {
-      end: END,
-      web_agent: "web_agent",
-    });
+    .addEdge("fallback_generate", END);
 
   return workflow.compile();
 }
 
 export const queryAgent = buildGraph();
 
-// ─── HELPER FOR TOOL NODE CONFIG ───
-// We need to pass docsSiteUrl etc to tool node.
-// LangGraph's ToolNode accepts a function that returns config.
-// OR we can wrap the tools to inject config.
-// For now, let's assume the standard ToolNode works and we might need to patch `tools.ts`
-// if `config` isn't passed correctly.
-// The `webSearchDocsTool` in `tools.ts` expects `config.configurable.docsSiteUrl`.
-// We need to ensure we run the graph with `configurable`.
-
-// ─── UTILS ───
+// ─── DOMAIN RELEVANCE CHECK ───
 
 export async function isDomainRelevant(
   query: string,
@@ -317,9 +572,10 @@ export async function isDomainRelevant(
     temperature: 0,
   });
 
-  const response = await model.invoke([
-    new SystemMessage(
-      `You are a query classifier for a documentation chatbot. The user is currently in a workspace for "${productName}".
+  try {
+    const response = await model.invoke([
+      new SystemMessage(
+        `You are a query classifier for a documentation chatbot. The user is currently in a workspace for "${productName}".
 
 Determine if the query could POSSIBLY be answered using ${productName} documentation.
 
@@ -332,22 +588,20 @@ Rules — be GENEROUS, default to relevant: true:
 - Implementation/code questions (e.g. "webhook code for next js") → relevant: true (the user is in ${productName} workspace, so they mean ${productName})
 - ONLY mark false for questions that have ZERO possible connection to ${productName} (e.g. "recipe for pancakes", "explain quantum physics")
 - When in doubt → relevant: true`,
-    ),
-    new HumanMessage(query),
-  ]);
+      ),
+      new HumanMessage(query),
+    ]);
 
-  try {
     const content =
       typeof response.content === "string"
         ? response.content
         : JSON.stringify(response.content);
-    // Extract JSON from response (handle markdown code blocks)
     const jsonMatch = content.match(/\{[\s\S]*?\}/);
     if (jsonMatch) {
       return JSON.parse(jsonMatch[0]);
     }
   } catch {
-    // If parsing fails, assume relevant to avoid false rejections
+    // If classification fails, assume relevant to avoid false rejections
   }
   return {
     relevant: true,
@@ -355,13 +609,14 @@ Rules — be GENEROUS, default to relevant: true:
   };
 }
 
-// Convenience function to run the agent (Promise based, for legacy/testing)
-// NOTE: For streaming, use queryAgent.streamEvents() directly.
+// ─── MAIN ENTRY POINT ───
+
 export async function runQueryAgent(
   query: string,
   docSourceId: string,
   docsSiteUrl: string,
   productName: string,
+  isPro: boolean,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onStream?: (event: any) => void,
 ) {
@@ -394,24 +649,52 @@ export async function runQueryAgent(
     docSourceId,
     docsSiteUrl,
     productName,
+    isPro,
   );
 
-  console.log(`🤖 [LangGraph] Invoking graph with configurable: { docSourceId=${docSourceId}, docsSiteUrl=${docsSiteUrl}, productName=${productName} }`);
+  console.log(
+    `🤖 [LangGraph] Invoking graph with configurable: { docSourceId=${docSourceId}, docsSiteUrl=${docsSiteUrl}, productName=${productName}, isPro=${isPro} }`,
+  );
 
-  const result = await queryAgent.invoke(initialState, {
-    configurable: {
-      docSourceId,
-      docsSiteUrl,
-      productName,
-      onStream,
-    },
-  });
+  let result: GraphState;
+  try {
+    result = await queryAgent.invoke(initialState, {
+      recursionLimit: GRAPH_RECURSION_LIMIT,
+      configurable: {
+        docSourceId,
+        docsSiteUrl,
+        productName,
+        onStream,
+      },
+    });
+  } catch (error) {
+    console.error(`❌ [LangGraph] Graph invocation failed:`, error);
+    if (onStream) {
+      onStream({
+        type: "text",
+        content:
+          "I encountered an error during deep research. Please try again.",
+      });
+      onStream({ type: "finish", sources: [] });
+    }
+    return {
+      answer: "I encountered an error during deep research. Please try again.",
+      sources: [],
+      confidence: "low" as const,
+      usedWebFallback: false,
+    };
+  }
 
-  console.log(`🤖 [LangGraph] Graph complete — finished=${result.finished}, confidence=${result.confidence}, usedWebFallback=${result.usedWebFallback}, hopCount=${result.hopCount}`);
+  console.log(
+    `🤖 [LangGraph] Graph complete — finished=${result.finished}, isContextSufficient=${result.isContextSufficient}, usedWebFallback=${result.usedWebFallback}, hopCount=${result.hopCount}, errors=${result.errors?.length ?? 0}`,
+  );
 
-  // Extract the final answer:
-  // - If generate was sufficient (finished=true), use state.answer
-  // - If generate was insufficient and web_agent ran, extract from last AI message
+  if (result.errors?.length) {
+    console.warn(
+      `   ⚠️ [LangGraph] Accumulated errors: ${result.errors.join("; ")}`,
+    );
+  }
+
   let finalAnswer = result.answer || "No answer generated.";
   let finalSources = result.sources || [];
 
@@ -420,8 +703,7 @@ export async function runQueryAgent(
       .reverse()
       .find(
         (m: BaseMessage) =>
-          m._getType() === "ai" &&
-          !(m as AIMessage).tool_calls?.length,
+          m._getType() === "ai" && !(m as AIMessage).tool_calls?.length,
       );
     if (lastAIMessage) {
       const content = lastAIMessage.content;
@@ -430,7 +712,6 @@ export async function runQueryAgent(
       }
     }
 
-    // Extract source URLs from web_search_docs tool results
     const toolMessages = result.messages.filter(
       (m: BaseMessage) => m._getType() === "tool",
     );
@@ -468,7 +749,9 @@ export async function runQueryAgent(
   const elapsed = Date.now() - startTime;
   console.log(`   ⏱️  Duration: ${elapsed}ms`);
   console.log(`   📊 Answer length: ${finalAnswer.length} chars`);
-  console.log(`   🔗 Sources: ${finalSources.length} (${finalSources.slice(0, 3).join(", ")}${finalSources.length > 3 ? "..." : ""})`);
+  console.log(
+    `   🔗 Sources: ${finalSources.length} (${finalSources.slice(0, 3).join(", ")}${finalSources.length > 3 ? "..." : ""})`,
+  );
   console.log(`   🌐 Web fallback: ${result.usedWebFallback || false}`);
   console.log(`🤖 [LangGraph] ========== AGENT END ==========\n`);
 

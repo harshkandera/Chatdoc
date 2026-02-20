@@ -484,6 +484,110 @@
   animation: step-shimmer 1.5s ease-in-out infinite;
 }
 
+/* ─── Chain of Thought Animations ─── */
+
+@keyframes cot-dot-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--cot-pulse-color, rgba(168, 85, 247, 0.4));
+  }
+  70% {
+    box-shadow: 0 0 0 6px var(--cot-pulse-color-end, rgba(168, 85, 247, 0));
+  }
+  100% {
+    box-shadow: 0 0 0 0 var(--cot-pulse-color-end, rgba(168, 85, 247, 0));
+  }
+}
+
+.cot-dot-pulse {
+  animation: cot-dot-pulse 2s ease-out infinite;
+}
+
+@keyframes cot-slide-in {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cot-step-enter {
+  animation: cot-slide-in 0.35s ease-out both;
+}
+
+@keyframes cot-text-shimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+.cot-text-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(255, 255, 255, 0.8) 50%,
+    rgba(255, 255, 255, 0.4) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: cot-text-shimmer 2s linear infinite;
+}
+
+@keyframes cot-progress-flow {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+.cot-progress-bar {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(168, 85, 247, 0.3) 25%,
+    rgba(139, 92, 246, 0.6) 50%,
+    rgba(168, 85, 247, 0.3) 75%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: cot-progress-flow 2s ease-in-out infinite;
+}
+
+@keyframes cot-header-glow {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.cot-header-glow {
+  animation: cot-header-glow 2.5s ease-in-out infinite;
+}
+
+@keyframes cot-line-pulse {
+  0%, 100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.cot-line-active {
+  animation: cot-line-pulse 2s ease-in-out infinite;
+}
+
 /* ─── Streaming Cursor ─── */
 
 @keyframes cursor-blink {

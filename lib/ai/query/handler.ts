@@ -14,6 +14,7 @@ import {
   ANSWER_SYSTEM_PROMPT_TEXT,
   GeneratedAnswer,
 } from "./generate";
+import { gradeContextSufficiency } from "../graph";
 import { traceable } from "langsmith/traceable";
 
 export interface SearchContextResult {
@@ -175,6 +176,7 @@ ${context}`,
 /**
  * Check if we should escalate to LangGraph agent.
  * Returns the agent result if escalated, null otherwise.
+ * Only Pro users with TAVILY_API_KEY can use the agent.
  * Wrapped with traceable() so escalation decisions are visible in LangSmith.
  */
 export const checkEscalation = traceable(
@@ -182,28 +184,43 @@ export const checkEscalation = traceable(
     prompt: string,
     workspaceId: string,
     searchResult: SearchContextResult,
+    isPro: boolean,
+    isContextSufficient: boolean,
   ): Promise<{
     answer: string;
     sources: string[];
     confidence: "high" | "medium" | "low";
     usedWebFallback: boolean;
   } | null> => {
+    if (!isPro) {
+      console.log(`   ⏭️ [checkEscalation] Skipped: user is not Pro`);
+      return null;
+    }
+    if (isContextSufficient) {
+      console.log(
+        `   ⏭️ [checkEscalation] Skipped: LLM grader says context is sufficient`,
+      );
+      return null;
+    }
+    if (!process.env.TAVILY_API_KEY) {
+      console.log(`   ⏭️ [checkEscalation] Skipped: TAVILY_API_KEY not set`);
+      return null;
+    }
+
     const workspace = await prisma.workspace.findUnique({
       where: { id: workspaceId },
       include: { DocSource: true },
     });
 
-    if (!workspace?.DocSource) return null;
-
-    const subscription = await getUserSubscription(workspace.userId);
-    const isPro = subscription?.isActive;
-    const canUseLangGraph = isPro && !!process.env.TAVILY_API_KEY;
-
-    if (searchResult.confidence !== "low" || !canUseLangGraph) return null;
-    if (searchResult.chunks.length >= 2) return null;
+    if (!workspace?.DocSource) {
+      console.log(
+        `   ⏭️ [checkEscalation] Skipped: workspace or DocSource not found`,
+      );
+      return null;
+    }
 
     console.log(
-      `   🔄 [handler] RAG confidence LOW + few chunks → escalating to LangGraph agent...`,
+      `   🔄 [handler] LLM grader: context insufficient + Pro user → escalating to LangGraph agent...`,
     );
 
     try {
@@ -212,6 +229,7 @@ export const checkEscalation = traceable(
         workspace.docSourceId,
         workspace.DocSource.rootUrl,
         workspace.DocSource.productName,
+        true,
       );
 
       return {
@@ -240,8 +258,29 @@ export async function handleQuery(
 
   const search = await searchContext(prompt, workspaceId, options);
 
-  // Check escalation
-  const escalation = await checkEscalation(prompt, workspaceId, search);
+  // Check escalation (fetch subscription for Pro check)
+  const wsForSub = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { userId: true },
+  });
+  const subscription = wsForSub
+    ? await getUserSubscription(wsForSub.userId)
+    : null;
+  const isPro = subscription?.isActive ?? false;
+
+  // LLM context grader — the single source of truth for routing
+  const isContextSufficient = await gradeContextSufficiency(
+    prompt,
+    search.chunks,
+  );
+
+  const escalation = await checkEscalation(
+    prompt,
+    workspaceId,
+    search,
+    isPro,
+    isContextSufficient,
+  );
   if (escalation) {
     return {
       content: escalation.answer,

@@ -92,15 +92,24 @@ export const POST = Webhooks({
                 : null;
 
           if (whereClause) {
+            const polarStatus = data.status as string | undefined;
+            const resolvedStatus =
+              type === "subscription.active" ||
+              polarStatus === "active" ||
+              polarStatus === "trialing"
+                ? "active"
+                : polarStatus || "active";
+
+            console.log(
+              `[Polar Webhook] ${type} → polar status="${polarStatus}", resolved="${resolvedStatus}"`,
+            );
+
             await prisma.user.update({
               where: whereClause,
               data: {
                 subscriptionId: data.id,
                 customerId: customerId,
-                status:
-                  type === "subscription.active"
-                    ? "active"
-                    : data.status || "free",
+                status: resolvedStatus,
                 currentPeriodEnd: data.current_period_end
                   ? new Date(data.current_period_end)
                   : undefined,
@@ -120,9 +129,14 @@ export const POST = Webhooks({
             where: { subscriptionId: data.id },
             data: {
               status: "canceled",
-              currentPeriodEnd: null,
+              currentPeriodEnd: data.current_period_end
+                ? new Date(data.current_period_end)
+                : undefined,
             },
           });
+          console.log(
+            `[Polar Webhook] ${type} → subscription canceled (periodEnd: ${data.current_period_end || "none"})`,
+          );
           break;
 
         default:

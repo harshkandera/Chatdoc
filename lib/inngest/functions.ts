@@ -30,11 +30,21 @@ export const updateDocSourceStatusFunction = inngest.createFunction(
       event.data;
 
     await step.run("persist-docsource-status", async () => {
-      await updateDocSourceStatus(docSourceId, status as any, {
-        message,
-        documentCount,
-        chunkCount,
-      });
+      await updateDocSourceStatus(
+        docSourceId,
+        status as
+          | "pending"
+          | "scraping"
+          | "chunking"
+          | "embedding"
+          | "ready"
+          | "error",
+        {
+          message,
+          documentCount,
+          chunkCount,
+        }
+      );
     });
   },
 );
@@ -51,10 +61,14 @@ export const globalDocSourceCancelledHandler = inngest.createFunction(
     if: "event.data.function_id.endsWith('index-docsource')",
   },
   async ({ event, step }) => {
+    type EventDataWithDocSource = {
+      data?: { event?: { data?: { docSourceId?: string } }; docSourceId?: string };
+    };
     // Robust ID Extraction: Check inside the nested system event
-    const originalEvent = (event as any).data?.event;
+    const eventPayload = event as EventDataWithDocSource;
+    const originalEvent = eventPayload.data?.event;
     const docSourceId =
-      (event as any).data?.docSourceId || originalEvent?.data?.docSourceId;
+      eventPayload.data?.docSourceId || originalEvent?.data?.docSourceId;
 
     if (!docSourceId) {
       return;
@@ -92,9 +106,13 @@ export const indexDocSourceFunction = inngest.createFunction(
     onFailure: async ({ event, error }) => {
       console.log("[Inngest] Function failure:", error);
 
-      const originalEvent = (event as any).data?.event;
+      type EventDataWithDocSource = {
+        data?: { event?: { data?: { docSourceId?: string } }; docSourceId?: string };
+      };
+      const eventPayload = event as EventDataWithDocSource;
+      const originalEvent = eventPayload.data?.event;
       const docSourceId =
-        (event as any).data?.docSourceId || originalEvent?.data?.docSourceId;
+        eventPayload.data?.docSourceId || originalEvent?.data?.docSourceId;
 
       if (!docSourceId) return;
 
@@ -263,9 +281,13 @@ export const smartReindexDocSourceFunction = inngest.createFunction(
       },
     ],
     onFailure: async ({ event, error }) => {
-      const originalEvent = (event as any).data?.event;
+      type EventDataWithDocSource = {
+        data?: { event?: { data?: { docSourceId?: string } }; docSourceId?: string };
+      };
+      const eventPayload = event as EventDataWithDocSource;
+      const originalEvent = eventPayload.data?.event;
       const docSourceId =
-        (event as any).data?.docSourceId || originalEvent?.data?.docSourceId;
+        eventPayload.data?.docSourceId || originalEvent?.data?.docSourceId;
       if (!docSourceId) return;
 
       try {

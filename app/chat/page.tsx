@@ -159,14 +159,7 @@ function ChatContent() {
       />
 
       <div className="min-h-0 overflow-hidden flex flex-col">
-        {/* Error Banner */}
-        {error && (
-          <div className="mx-4 mt-2 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm shrink-0">
-            {error}
-          </div>
-        )}
-
-        <ChatMessages messages={messages} status={status} />
+        <ChatMessages messages={messages} status={status} error={error} />
       </div>
 
       <ChatInput

@@ -15,6 +15,7 @@ export interface AgentState {
   docSourceId: string;
   docsSiteUrl: string;
   productName: string;
+  isPro: boolean;
   messages: BaseMessage[];
 
   // Classification
@@ -26,9 +27,14 @@ export interface AgentState {
   rerankedResults: SearchResult[];
   webResults: ScrapedPage[];
 
-  // Confidence & routing
+  // Confidence (telemetry only — NOT used for routing)
   confidence: "high" | "medium" | "low";
   topScore: number;
+
+  // Routing (authoritative — set by LLM context grader)
+  isContextSufficient: boolean;
+
+  // Control flow
   hopCount: number;
   usedWebFallback: boolean;
 
@@ -36,6 +42,9 @@ export interface AgentState {
   answer?: string;
   sources: string[];
   finished: boolean;
+
+  // Error tracking — concat reducer accumulates errors from all nodes
+  errors: string[];
 }
 
 // Initial state factory
@@ -44,21 +53,25 @@ export function createInitialState(
   docSourceId: string,
   docsSiteUrl: string,
   productName: string,
+  isPro: boolean,
 ): Partial<AgentState> {
   return {
     query,
     docSourceId,
     docsSiteUrl,
     productName,
+    isPro,
     messages: [],
     searchResults: [],
     rerankedResults: [],
     webResults: [],
     confidence: "low",
     topScore: 0,
+    isContextSufficient: false,
     hopCount: 0,
     usedWebFallback: false,
     sources: [],
     finished: false,
+    errors: [],
   };
 }

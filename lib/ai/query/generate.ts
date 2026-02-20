@@ -89,7 +89,7 @@ Guidelines:
 - Be accurate and precise - only use information from the context
 - Use markdown formatting for code blocks, lists, and emphasis
 - Include code examples when relevant
-- If the context doesn't contain enough information, say so
+- If the context does not contain enough information to answer the question accurately, you MUST say: "I don't have enough information in the documentation to answer this question." Do NOT guess or infer.
 - Reference source documents using [1], [2], etc. notation when citing specific information
 - Keep answers focused and well-structured`;
 

@@ -9,11 +9,16 @@ import {
   MessageActions,
   MessageAction,
 } from "@/components/ai-elements/message";
+import {
+  ChainOfThought,
+  ChainOfThoughtHeader,
+  ChainOfThoughtStep,
+  ChainOfThoughtContent,
+} from "@/components/ai-elements/chain-of-thought";
 import { Markdown } from "./Markdown";
 import { cn } from "@/lib/utils";
 import {
   ChevronDown,
-  ChevronRight,
   CopyIcon,
   RefreshCcwIcon,
   Search,
@@ -22,6 +27,13 @@ import {
   Globe,
   Loader2,
   Check,
+  Sparkles,
+  ShieldCheck,
+  Zap,
+  Filter,
+  FileSearch,
+  MessageSquare,
+  type LucideIcon,
 } from "lucide-react";
 import { Sources } from "./Sources";
 
@@ -35,206 +47,249 @@ interface ToolInvocation {
   result?: unknown;
 }
 
-// ─── Pipeline Step Labels & Icons ───
+// ─── Chain of Thought: Tool Step Config ───
 
-const TOOL_CONFIG: Record<
-  string,
-  { label: string; icon: React.ReactNode; activeLabel?: string }
-> = {
+interface ToolStepConfig {
+  label: string;
+  activeLabel: string;
+  icon: LucideIcon;
+}
+
+const TOOL_CONFIGS: Record<string, ToolStepConfig> = {
+  // ── RAG Pipeline ──
   search_docs: {
     label: "Searched documentation",
     activeLabel: "Searching documentation...",
-    icon: <Search className="w-3.5 h-3.5 text-blue-400" />,
+    icon: Search,
   },
   multi_search: {
-    label: "Searched multiple queries",
+    label: "Ran parallel searches",
     activeLabel: "Running parallel searches...",
-    icon: <Layers className="w-3.5 h-3.5 text-blue-400" />,
+    icon: Layers,
   },
   decompose_query: {
     label: "Analyzed query complexity",
     activeLabel: "Breaking down your question...",
-    icon: <Brain className="w-3.5 h-3.5 text-purple-400" />,
+    icon: Brain,
   },
   classify_query: {
     label: "Classified query type",
-    activeLabel: "Classifying query...",
-    icon: <Brain className="w-3.5 h-3.5 text-purple-400" />,
+    activeLabel: "Understanding your question...",
+    icon: FileSearch,
+  },
+  // ── Deep Research (Agent Graph) ──
+  deep_vector_search: {
+    label: "Deep vector search completed",
+    activeLabel: "Deep searching documentation...",
+    icon: Search,
+  },
+  context_grader: {
+    label: "Context quality verified",
+    activeLabel: "Evaluating context quality...",
+    icon: ShieldCheck,
+  },
+  deep_rerank: {
+    label: "Results reranked by relevance",
+    activeLabel: "Reranking results...",
+    icon: Filter,
+  },
+  deep_generate: {
+    label: "Answer generated",
+    activeLabel: "Synthesizing answer...",
+    icon: Sparkles,
+  },
+  fallback_generate: {
+    label: "Best-effort answer generated",
+    activeLabel: "Generating answer from available context...",
+    icon: MessageSquare,
   },
   web_search_docs: {
-    label: "Searched documentation site",
-    activeLabel: "Searching documentation site...",
-    icon: <Globe className="w-3.5 h-3.5 text-green-400" />,
+    label: "Searched official documentation",
+    activeLabel: "Searching live documentation...",
+    icon: Globe,
   },
   deep_research: {
     label: "Deep research completed",
     activeLabel: "Performing deep research...",
-    icon: <Brain className="w-3.5 h-3.5 text-amber-400" />,
+    icon: Zap,
   },
 };
 
-const DEEP_TOOL_CONFIG: Record<
-  string,
-  { label: string; icon: React.ReactNode; activeLabel?: string }
-> = {
-  deep_vector_search: {
-    label: "Deep vector search completed",
-    activeLabel: "Running deep vector search...",
-    icon: <Search className="w-3.5 h-3.5 text-cyan-400" />,
-  },
-  deep_rerank: {
-    label: "Deep reranking completed",
-    activeLabel: "Reranking results...",
-    icon: <Layers className="w-3.5 h-3.5 text-cyan-400" />,
-  },
-  deep_generate: {
-    label: "Deep answer generated",
-    activeLabel: "Generating deep answer...",
-    icon: <Brain className="w-3.5 h-3.5 text-cyan-400" />,
-  },
-};
-
-function getToolConfig(toolName: string) {
+function getToolConfig(toolName: string): ToolStepConfig {
   return (
-    TOOL_CONFIG[toolName] ||
-    DEEP_TOOL_CONFIG[toolName] || {
-      label: toolName,
-      activeLabel: `Running ${toolName}...`,
-      icon: <Search className="w-3.5 h-3.5 text-neutral-400" />,
+    TOOL_CONFIGS[toolName] || {
+      label: toolName.replace(/_/g, " "),
+      activeLabel: `Running ${toolName.replace(/_/g, " ")}...`,
+      icon: Zap,
     }
   );
 }
 
-// ─── Pipeline Steps Component ───
-
-function PipelineSteps({ invocations }: { invocations: ToolInvocation[] }) {
-  const [isExpanded, setIsExpanded] = useState(true);
-  const allComplete = invocations.every((inv) => inv.state === "result");
-  const activeCount = invocations.filter(
-    (inv) => inv.state !== "result",
-  ).length;
-  const completedCount = invocations.length - activeCount;
-
-  if (invocations.length === 0) return null;
-
-  return (
-    <div className="mb-3 rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
-      {/* Header */}
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-medium text-neutral-400 hover:bg-white/[0.03] transition-colors"
-      >
-        {allComplete ? (
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-        ) : (
-          <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-400" />
-        )}
-        <span>
-          {allComplete
-            ? `${invocations.length} step${invocations.length > 1 ? "s" : ""} completed`
-            : `${activeCount} step${activeCount > 1 ? "s" : ""} in progress...`}
-        </span>
-
-        {/* Progress indicator */}
-        {!allComplete && invocations.length > 1 && (
-          <span className="text-[10px] text-neutral-500 tabular-nums">
-            {completedCount}/{invocations.length}
-          </span>
-        )}
-
-        <span className="ml-auto">
-          {isExpanded ? (
-            <ChevronDown className="w-3.5 h-3.5" />
-          ) : (
-            <ChevronRight className="w-3.5 h-3.5" />
-          )}
-        </span>
-      </button>
-
-      {/* Indeterminate progress bar while steps are running */}
-      {!allComplete && (
-        <div className="h-[1px] w-full bg-white/[0.04] overflow-hidden">
-          <div className="h-full w-1/3 bg-gradient-to-r from-transparent via-purple-500/40 to-transparent pipeline-progress-bar" />
-        </div>
-      )}
-
-      {/* Steps list */}
-      {isExpanded && (
-        <div className="px-3 pb-3 pt-1.5 space-y-1">
-          {invocations.map((inv, index) => {
-            const config = getToolConfig(inv.toolName);
-            const isComplete = inv.state === "result";
-
-            return (
-              <div
-                key={inv.toolCallId}
-                className="pipeline-step-enter flex items-start gap-2 text-xs rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.02]"
-                style={{ animationDelay: `${index * 80}ms` }}
-              >
-                {/* Timeline dot / icon */}
-                <div className="mt-0.5 min-w-[16px] flex justify-center">
-                  {isComplete ? (
-                    <>{config.icon}</>
-                  ) : (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-400" />
-                  )}
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <span
-                    className={cn(
-                      "font-medium",
-                      isComplete
-                        ? "text-neutral-300"
-                        : "text-neutral-400 step-shimmer",
-                    )}
-                  >
-                    {isComplete ? config.label : config.activeLabel}
-                  </span>
-                  {isComplete &&
-                  inv.result != null &&
-                  typeof inv.result === "object" ? (
-                    <div className="mt-0.5 text-neutral-500 font-mono text-[10px]">
-                      {formatToolResult(
-                        inv.toolName,
-                        inv.result as Record<string, unknown>,
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-
-                {/* Status badge */}
-                {isComplete && (
-                  <CheckCircle2 className="w-3 h-3 text-emerald-500/60 mt-0.5 flex-shrink-0" />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
+// ─── Chain of Thought: Pipeline Steps Component ───
 
 function formatToolResult(
   toolName: string,
   result: Record<string, unknown>,
-): string {
-  if (toolName === "search_docs") {
-    return `${result.chunks ?? 0} chunks · ${result.confidence ?? "unknown"} confidence`;
+): React.ReactNode {
+  if (toolName === "search_docs" || toolName === "deep_vector_search") {
+    const urls = Array.isArray(result.urls) ? (result.urls as string[]) : [];
+    const text =
+      toolName === "search_docs"
+        ? `${result.chunks ?? 0} chunks · ${result.confidence ?? "unknown"} confidence`
+        : `${result.chunks ?? 0} chunks · top score ${result.topScore ?? "—"}`;
+
+    if (urls.length > 0) {
+      return (
+        <div className="flex flex-col gap-1.5 mt-1 pb-1">
+          <div className="flex flex-wrap gap-2 text-sm text-neutral-500 mb-1">
+            <span className="text-muted-foreground">{text}</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {urls.map((u, i) => {
+              try {
+                // Remove http/https, but intentionally keep "www." per the screenshot
+                const displayUrl = u
+                  .replace(/^https?:\/\//, "")
+                  .replace(/\/$/, "")
+                  .split("/")[0];
+                return (
+                  <a
+                    key={i}
+                    href={u}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center px-3 py-1.5 rounded-full bg-[#1a1a1a] hover:bg-[#222222] text-sm text-neutral-300 transition-colors pointer-events-auto"
+                  >
+                    <span className="truncate max-w-[200px]">{displayUrl}</span>
+                  </a>
+                );
+              } catch {
+                return null;
+              }
+            })}
+          </div>
+        </div>
+      );
+    }
+    return <span className="text-muted-foreground">{text}</span>;
   }
   if (toolName === "multi_search") {
-    return `${result.totalChunks ?? 0} chunks across queries · ${result.confidence ?? "unknown"} confidence`;
+    return (
+      <span className="text-muted-foreground">{`${result.totalChunks ?? 0} chunks across queries · ${result.confidence ?? "unknown"} confidence`}</span>
+    );
   }
   if (toolName === "decompose_query" && result.subQueries) {
     const queries = result.subQueries as Array<{ query: string }>;
-    return queries.map((q) => `"${q.query}"`).join(", ");
+    return (
+      <span className="text-muted-foreground">
+        {queries.map((q) => `"${q.query}"`).join(", ")}
+      </span>
+    );
   }
   if (toolName === "deep_research") {
-    return String(result.status || result.reason || "Agent research complete");
+    return (
+      <span className="text-muted-foreground">
+        {String(result.status || result.reason || "Agent research complete")}
+      </span>
+    );
   }
-  return "";
+  if (toolName === "context_grader") {
+    const sufficient = result.isContextSufficient;
+    return (
+      <span className="text-muted-foreground">
+        {sufficient ? "Context is sufficient" : "Needs deeper research"}
+      </span>
+    );
+  }
+  if (toolName === "deep_rerank") {
+    return (
+      <span className="text-muted-foreground">{`${result.reranked ?? 0} results · ${result.confidence ?? "unknown"} confidence`}</span>
+    );
+  }
+  if (toolName === "deep_generate") {
+    return (
+      <span className="text-muted-foreground">{`${result.length ?? 0} chars · ${result.sources ?? 0} sources`}</span>
+    );
+  }
+  if (toolName === "web_search_docs") {
+    return (
+      <span className="text-muted-foreground">{`${result.toolCalls ?? 0} tool calls executed`}</span>
+    );
+  }
+  if (result.error) {
+    return <span className="text-red-400">{`Error: ${result.error}`}</span>;
+  }
+  return null;
+}
+
+function PipelineSteps({ invocations }: { invocations: ToolInvocation[] }) {
+  // Defensive render-level dedup by toolCallId (belt-and-suspenders)
+  const deduped = invocations.filter(
+    (inv, idx, arr) =>
+      arr.findIndex((i) => i.toolCallId === inv.toolCallId) === idx,
+  );
+
+  if (deduped.length === 0) return null;
+
+  const isComplete = deduped.every((inv) => inv.state === "result");
+  const isDeepResearch = deduped.some((inv) =>
+    [
+      "deep_vector_search",
+      "deep_rerank",
+      "deep_generate",
+      "context_grader",
+      "web_search_docs",
+      "fallback_generate",
+    ].includes(inv.toolName),
+  );
+
+  const headerTitle = isComplete
+    ? isDeepResearch
+      ? "Deep Research Complete"
+      : `${deduped.length} step${deduped.length > 1 ? "s" : ""} completed`
+    : isDeepResearch
+      ? "Deep Research in progress..."
+      : "Thinking...";
+
+  return (
+    <div className="mb-4">
+      <ChainOfThought defaultOpen={true}>
+        <ChainOfThoughtHeader>{headerTitle}</ChainOfThoughtHeader>
+        <ChainOfThoughtContent>
+          {deduped.map((inv) => {
+            const config = getToolConfig(inv.toolName);
+            const isStepComplete = inv.state === "result";
+            const isActive =
+              inv.state === "call" || inv.state === "partial-call";
+
+            const resultText =
+              isStepComplete &&
+              inv.result != null &&
+              typeof inv.result === "object"
+                ? formatToolResult(
+                    inv.toolName,
+                    inv.result as Record<string, unknown>,
+                  )
+                : undefined;
+
+            let status: "complete" | "active" | "pending" = "pending";
+            if (isStepComplete) status = "complete";
+            else if (isActive) status = "active";
+
+            return (
+              <ChainOfThoughtStep
+                key={inv.toolCallId}
+                icon={config.icon}
+                label={isStepComplete ? config.label : config.activeLabel}
+                description={resultText}
+                status={status}
+              />
+            );
+          })}
+        </ChainOfThoughtContent>
+      </ChainOfThought>
+    </div>
+  );
 }
 
 // ─── Helper Components ───
@@ -272,18 +327,29 @@ function CopyAction({ content }: CopyActionProps) {
 function ThinkingIndicator() {
   return (
     <Message from="assistant">
-      <MessageContent>
-        <div className="flex items-center gap-2.5 py-2 px-1">
-          <div className="flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse [animation-delay:0ms]" />
-            <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse [animation-delay:300ms]" />
-            <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse [animation-delay:600ms]" />
+      <div className="rounded-2xl border border-white/[0.06] bg-gradient-to-b from-white/[0.03] to-transparent overflow-hidden backdrop-blur-sm px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center w-6 h-6 rounded-full bg-purple-500/15 cot-header-glow">
+            <Sparkles className="w-3.5 h-3.5 text-purple-400" />
           </div>
-          <span className="text-sm text-neutral-400 animate-pulse">
-            Searching documentation...
-          </span>
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold text-neutral-300 tracking-wide cot-text-shimmer">
+              Analyzing your question...
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-1 h-1 rounded-full bg-purple-400 animate-pulse [animation-delay:0ms]" />
+              <span className="w-1 h-1 rounded-full bg-purple-400 animate-pulse [animation-delay:200ms]" />
+              <span className="w-1 h-1 rounded-full bg-purple-400 animate-pulse [animation-delay:400ms]" />
+              <span className="text-[10px] text-neutral-500 ml-1">
+                Searching documentation
+              </span>
+            </div>
+          </div>
         </div>
-      </MessageContent>
+        <div className="mt-2 h-[2px] w-full bg-white/[0.03] overflow-hidden rounded-full">
+          <div className="h-full w-full cot-progress-bar" />
+        </div>
+      </div>
     </Message>
   );
 }
@@ -328,21 +394,36 @@ function parseMessageContent(raw: string): {
   body: string;
   embeddedUrls: string[];
 } {
-  // Match a Sources section: starts with "Sources:" (case-insensitive),
-  // followed by lines containing URLs, until a blank line or end of string.
+  // 1. Remove Markdown code blocks entirely before searching for URLs,
+  // so we don't extract API endpoint examples (like in curl or python scripts).
+  const textWithoutCode = raw.replace(/```[\s\S]*?```/g, "");
+
+  // 2. Extract ALL URLs from the clean text for the Sources tray.
+  // This regex stops at spaces, brackets, or quotes.
+  const urlRegex = /https?:\/\/[^\s)\]"']+/g;
+
+  // 3. Strip trailing punctuation that might have snuck in (e.g. at the end of a sentence).
+  const embeddedUrls = Array.from(
+    textWithoutCode.matchAll(urlRegex),
+    (m) => m[0],
+  )
+    .map((url) => url.replace(/[,.;:!)\]}]+$/, ""))
+    // Also ignore obviously broken/template URLs from AI hallucination
+    .filter((url) => !url.includes("{") && !url.includes("}"));
+
+  // 4. Handle explicit "Sources:" block in the original text (we want to hide this block)
   const sourcesPattern = /\n?\*{0,2}sources:?\*{0,2}\s*\n([\s\S]*?)(?=\n\n|$)/i;
+  let body = raw.replace(sourcesPattern, "");
 
-  const match = raw.match(sourcesPattern);
-  if (!match) return { body: raw, embeddedUrls: [] };
+  // 5. Clean up inline "[1] https://..." links from the body
+  const inlineLinkPattern = /(\[\d+\])\s*https?:\/\/[^\s)\]"']+/g;
+  body = body.replace(inlineLinkPattern, "$1");
 
-  const block = match[1] ?? "";
-  const urlRegex = /https?:\/\/[^\s)\]]+/g;
-  const embeddedUrls = Array.from(block.matchAll(urlRegex), (m) => m[0]);
+  // 6. Unwrap ` ```markdown ` blocks that the AI sometimes unnecessarily wraps tables or its entire response in
+  const markdownBlockPattern = /```markdown\s*\n([\s\S]*?)\n```/gi;
+  body = body.replace(markdownBlockPattern, "$1");
 
-  // Remove the entire Sources block from the body
-  const body = raw.replace(sourcesPattern, "").trimEnd();
-
-  return { body, embeddedUrls };
+  return { body: body.trimEnd(), embeddedUrls };
 }
 
 function getToolInvocations(message: {
@@ -364,21 +445,57 @@ function getToolInvocations(message: {
   for (const p of message.parts) {
     // Standard AI SDK tool-invocation parts
     if (p.type === "tool-invocation" && p.toolInvocation) {
-      invocations.push(p.toolInvocation);
+      const inv = p.toolInvocation;
+      const existing = seen.get(inv.toolCallId);
+      if (existing) {
+        // Merge: keep the most-advanced state
+        if (inv.state === "result") {
+          existing.state = "result";
+          existing.result = inv.result;
+        }
+      } else {
+        seen.set(inv.toolCallId, inv);
+        invocations.push(inv);
+      }
       continue;
     }
 
-    // Custom stream events: tool-input-start, tool-input-available, tool-output-available
-    // Map these to tool invocations for display
+    // AI SDK v6 dynamic-tool parts (from createUIMessageStream writer)
+    if (p.type === "dynamic-tool" && p.toolCallId && p.toolName) {
+      const isComplete =
+        p.state === "output-available" || p.state === "output-done";
+      const existing = seen.get(p.toolCallId);
+      if (existing) {
+        if (isComplete) {
+          existing.state = "result";
+          existing.result = p.output;
+        }
+      } else {
+        const inv: ToolInvocation = {
+          toolCallId: p.toolCallId,
+          toolName: p.toolName,
+          args: (p.input as Record<string, unknown>) || {},
+          state: isComplete ? "result" : "call",
+          result: isComplete ? p.output : undefined,
+        };
+        seen.set(p.toolCallId, inv);
+        invocations.push(inv);
+      }
+      continue;
+    }
+
+    // Legacy custom stream events (pre-v6 backward compat)
     if (p.type === "tool-input-start" && p.toolCallId && p.toolName) {
-      const inv: ToolInvocation = {
-        toolCallId: p.toolCallId,
-        toolName: p.toolName,
-        args: (p.input as Record<string, unknown>) || {},
-        state: "call",
-      };
-      seen.set(p.toolCallId, inv);
-      invocations.push(inv);
+      if (!seen.has(p.toolCallId)) {
+        const inv: ToolInvocation = {
+          toolCallId: p.toolCallId,
+          toolName: p.toolName,
+          args: (p.input as Record<string, unknown>) || {},
+          state: "call",
+        };
+        seen.set(p.toolCallId, inv);
+        invocations.push(inv);
+      }
     }
 
     if (p.type === "tool-output-available" && p.toolCallId) {
@@ -458,6 +575,7 @@ interface ChatMessagesProps {
     content?: string;
   }>;
   status?: "streaming" | "submitted" | "ready" | "error";
+  error?: Error | string | null;
   onRetry?: (userPrompt: string) => void;
 }
 
@@ -471,6 +589,7 @@ interface MessageItemProps {
   message: ChatMessagesProps["messages"][0];
   isLastMessage: boolean;
   status: ChatMessagesProps["status"];
+  error?: ChatMessagesProps["error"];
   onRetry?: (userPrompt: string) => void;
   // The user message text that prompted this assistant response.
   // Used so retry re-sends the correct prompt regardless of position.
@@ -482,6 +601,7 @@ const MessageItem = memo(
     message,
     isLastMessage,
     status,
+    error,
     onRetry,
     precedingUserPrompt,
   }: MessageItemProps) {
@@ -490,6 +610,11 @@ const MessageItem = memo(
     const partSourceUrls = getSourceUrls(message);
     const isAssistantStreaming =
       message.role === "assistant" && isLastMessage && status === "streaming";
+    const isAssistantError =
+      message.role === "assistant" &&
+      isLastMessage &&
+      status === "error" &&
+      error;
 
     // Strip embedded "Sources:" block from text and merge URLs with part sources
     const { body: text, embeddedUrls } = parseMessageContent(rawText);
@@ -528,6 +653,21 @@ const MessageItem = memo(
                 <div className="streaming-text text-[15px] leading-relaxed text-foreground">
                   <span>{text}</span>
                   <StreamingCursor />
+                </div>
+              ) : isAssistantError ? (
+                <div className="flex flex-col gap-2">
+                  {text && <Markdown content={text} className="text-[15px]" />}
+                  <div className="mt-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2 font-medium">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                      Generation Failed
+                    </div>
+                    <div className="text-destructive/80 leading-relaxed">
+                      {typeof error === "string"
+                        ? error
+                        : error?.message || "An unknown error occurred"}
+                    </div>
+                  </div>
                 </div>
               ) : text ? (
                 <Markdown content={text} className="text-[15px]" />
@@ -569,20 +709,31 @@ const MessageItem = memo(
     if (prev.message.id !== next.message.id) return false;
     if (prev.isLastMessage !== next.isLastMessage) return false;
     if (prev.status !== next.status) return false;
+    if (prev.error !== next.error) return false;
     if (prev.precedingUserPrompt !== next.precedingUserPrompt) return false;
     if (prev.isLastMessage && next.isLastMessage) {
       const prevText = getMessageText(prev.message);
       const nextText = getMessageText(next.message);
       if (prevText !== nextText) return false;
-      const prevParts = prev.message.parts?.length ?? 0;
-      const nextParts = next.message.parts?.length ?? 0;
-      if (prevParts !== nextParts) return false;
+      const prevInvs = getToolInvocations(prev.message);
+      const nextInvs = getToolInvocations(next.message);
+      if (prevInvs.length !== nextInvs.length) return false;
+      for (let i = 0; i < prevInvs.length; i++) {
+        if (prevInvs[i].state !== nextInvs[i].state) return false;
+      }
     }
     return true;
   },
 );
 
-export function ChatMessages({ messages, status, onRetry }: ChatMessagesProps) {
+export function ChatMessages({
+  messages,
+  status,
+  error,
+  onRetry,
+}: ChatMessagesProps) {
+  "use no memo"; // Tell React Compiler to skip this component
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const rafRef = useRef<number>(0);
@@ -603,6 +754,7 @@ export function ChatMessages({ messages, status, onRetry }: ChatMessagesProps) {
   const itemCount = messages.length + (showThinkingIndicator ? 1 : 0);
 
   // ─── Virtualizer ───
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: itemCount,
     getScrollElement: () => scrollRef.current,
@@ -689,6 +841,7 @@ export function ChatMessages({ messages, status, onRetry }: ChatMessagesProps) {
                     message={messages[virtualRow.index]}
                     isLastMessage={virtualRow.index === messages.length - 1}
                     status={status}
+                    error={error}
                     onRetry={onRetry}
                     precedingUserPrompt={(() => {
                       // For assistant messages, find the nearest preceding user message

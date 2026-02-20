@@ -165,23 +165,18 @@ export function Markdown({ content, className }: MarkdownProps) {
             </a>
           ),
 
-          // Inline code
-          code: ({ className, children, ...props }) => {
+          // Inline code or code blocks
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          code({ node, className, children, ...props }) {
             const match = /language-(\w+)/.exec(className || "");
-            // remark-gfm attaches node position via extra props
-            const node = (
-              props as {
-                node?: {
-                  position?: { start: { line: number }; end: { line: number } };
-                };
-              }
-            ).node;
-            const inline =
-              node?.position?.start.line === node?.position?.end.line;
 
-            if (inline) {
+            // If it has no language match and doesn't contain newlines
+            if (!match && !String(children).includes("\n")) {
               return (
-                <code className="px-1.5 py-0.5 bg-neutral-800 text-neutral-200 rounded text-sm font-mono">
+                <code
+                  className="px-1.5 py-0.5 bg-neutral-800 text-neutral-200 rounded text-sm font-mono"
+                  {...props}
+                >
                   {children}
                 </code>
               );
@@ -218,6 +213,7 @@ export function Markdown({ content, className }: MarkdownProps) {
           ),
           // Images
           img: ({ src, alt }) => (
+            /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={src}
               alt={alt}

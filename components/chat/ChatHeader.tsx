@@ -47,6 +47,8 @@ export function ChatHeader({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
+              id="model-selector-trigger"
+              suppressHydrationWarning
               variant="ghost"
               className="gap-2 text-white hover:bg-white/[0.04] font-medium whitespace-nowrap"
             >
@@ -63,7 +65,9 @@ export function ChatHeader({
           >
             {categories.map((category, catIndex) => (
               <div key={category}>
-                {catIndex > 0 && <DropdownMenuSeparator className="bg-white/[0.08]" />}
+                {catIndex > 0 && (
+                  <DropdownMenuSeparator className="bg-white/[0.08]" />
+                )}
                 <div className="px-2 py-1.5 text-[10px] font-semibold text-neutral-500 tracking-wider uppercase">
                   {category}
                 </div>
