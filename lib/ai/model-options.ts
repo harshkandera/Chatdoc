@@ -27,6 +27,14 @@ export const MODEL_OPTIONS: ModelOption[] = [
     category: "Groq",
   },
   {
+    id: "groq/gpt-oss-120b",
+    provider: "groq",
+    modelId: "openai/gpt-oss-120b",
+    name: "GPT OSS 120B",
+    description: "Large open-source model",
+    category: "Groq",
+  },
+  {
     id: "gemini/flash",
     provider: "gemini",
     modelId: "gemini-1.5-flash",
@@ -60,7 +68,7 @@ export const MODEL_OPTIONS: ModelOption[] = [
   },
 ];
 
-export const DEFAULT_MODEL_ID = "groq/llama-3.3-70b";
+export const DEFAULT_MODEL_ID = "groq/gpt-oss-120b";
 
 export function getModelOption(id: string): ModelOption {
   return MODEL_OPTIONS.find((m) => m.id === id) || MODEL_OPTIONS[0];

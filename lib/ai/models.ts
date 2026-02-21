@@ -28,7 +28,7 @@ function createLLM(provider: ModelProvider, modelId?: string) {
     case "groq":
     default:
       return new ChatGroq({
-        model: modelId || "llama-3.3-70b-versatile",
+        model: modelId || "openai/gpt-oss-120b",
         temperature: 0.1,
         apiKey: process.env.GROQ_API_KEY!,
       });

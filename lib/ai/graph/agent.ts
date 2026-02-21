@@ -387,7 +387,7 @@ async function webAgentNode(
     }
 
     const model = new ChatGroq({
-      model: "llama-3.3-70b-versatile",
+      model: "openai/gpt-oss-120b",
       temperature: 0,
     }).bindTools(agentTools);
 
@@ -585,8 +585,8 @@ Rules — be GENEROUS, default to relevant: true:
 - Questions about ${productName} features, API, setup, pricing, configuration → relevant: true
 - Questions about integrating ${productName} with ANY framework or tool (Next.js, React, Python, etc.) → relevant: true
 - Questions about webhooks, SDKs, billing, checkout, subscriptions in context of ${productName} → relevant: true
-- Implementation/code questions (e.g. "webhook code for next js") → relevant: true (the user is in ${productName} workspace, so they mean ${productName})
-- ONLY mark false for questions that have ZERO possible connection to ${productName} (e.g. "recipe for pancakes", "explain quantum physics")
+- Implementation/code/setup questions (e.g. "webhook code for next js", "how to install next js") → relevant: true (the user is in ${productName} workspace, so they mean ${productName})
+- ONLY mark false for questions that are completely disconnected from ${productName} (e.g., general programming algorithms like "write a C++ two sum", explaining unrelated concepts like "CSS flexbox", or non-technical questions like "recipe for pancakes")
 - When in doubt → relevant: true`,
       ),
       new HumanMessage(query),

@@ -26,12 +26,75 @@ const {
 
 export const maxDuration = 60;
 
-// ── Casual / greeting detection ──
-// Skip the full RAG pipeline for simple messages that don't need documentation.
-const CASUAL_PATTERNS = /^\s*(hi|hello|hey|howdy|yo|sup|thanks|thank you|ok|okay|cool|great|bye|goodbye|good morning|good evening|good night|gm|gn|what's up|whats up|how are you|hru|lol|haha|nice|👋|🙏)\s*[.!?]*\s*$/i;
+// ── Casual / greeting detection (3-Layer Filter) ──
+const CASUAL_PATTERNS =
+  /^\s*(h+e+l+o+|h+e+y+|h+i+|h+o+w+d+y+|y+o+|s+u+p+|t+h+a+n+k+s+|t+h+a+n+k+\s*y+o+u+|o+k+|o+k+a+y+|c+o+o+l+|g+r+e+a+t+|b+y+e+|g+o+o+d+b+y+e+|g+o+o+d+\s*m+o+r+n+i+n+g+|g+o+o+d+\s*e+v+e+n+i+n+g+|g+o+o+d+\s*n+i+g+h+t+|g+m+|g+n+|w+h+a+t+s*\s*u+p+|h+o+w+\s*a+r+e+\s*y+o+u+|h+r+u+|l+o+l+|h+a+h+a+|n+i+c+e+|[👋🙏]+)\s*[.!?\s]*$/i;
 
-function isCasualMessage(text: string): boolean {
-  return CASUAL_PATTERNS.test(text.trim());
+function passesFastCasualCheck(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  if (t.length > 50) return false;
+  if (t.includes("?")) return false;
+
+  if (/\b(why|how|what|fix|error|issue|explain|help|can|could|would)\b/.test(t))
+    return false;
+
+  if (/^hell+o+[^a-z]*$/.test(t)) {
+    return true;
+  }
+  return CASUAL_PATTERNS.test(t);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function shouldForceRag(chatMessages: any[] | undefined): boolean {
+  if (!chatMessages || chatMessages.length === 0) return false;
+  const lastAssistant = [...chatMessages]
+    .reverse()
+    .find((m) => m.role === "assistant" || m.role === "model");
+
+  if (!lastAssistant) return false;
+  const content =
+    typeof lastAssistant.content === "string"
+      ? lastAssistant.content
+      : JSON.stringify(lastAssistant.content);
+  return /\?\s*$/.test(content);
+}
+
+async function classifyIntent(text: string): Promise<boolean> {
+  try {
+    const { text: result } = await ai.generateText({
+      model: getAIModel("groq", "llama-3.1-8b-instant"),
+      system: `Classify the user's intent. Respond ONLY with one word:
+- casual → greetings, thanks, acknowledgements, small talk
+- question → asking for help, explanation, info, or next steps`,
+      messages: [{ role: "user", content: text }],
+      maxOutputTokens: 5,
+      temperature: 0,
+    });
+    return result.trim().toLowerCase().includes("casual");
+  } catch (err) {
+    console.error("Intent classification failed:", err);
+    return false; // Fall back to RAG on failure
+  }
+}
+
+async function isCasualMessage(
+  text: string,
+  chatMessages: Array<Record<string, unknown>> | undefined,
+): Promise<boolean> {
+  // Layer 1: Context override
+  if (shouldForceRag(chatMessages)) return false;
+
+  // Layer 2: Fast deterministic checks
+  const t = text.trim().toLowerCase();
+  if (t.length > 50) return false;
+  if (t.includes("?")) return false;
+  if (/\b(why|how|what|fix|error|issue|explain|can|could|would|help)\b/.test(t))
+    return false;
+
+  if (passesFastCasualCheck(text)) return true;
+
+  // Layer 3: Semantic Intent Classification
+  return await classifyIntent(text);
 }
 
 // ── Shared helper: convert chatMessages to CoreMessages with sliding window ──
@@ -48,7 +111,35 @@ async function buildCoreMessages(
         chatMessages.length > MAX_HISTORY_MESSAGES
           ? chatMessages.slice(-MAX_HISTORY_MESSAGES)
           : chatMessages;
-      return await convertToModelMessages(windowed as Parameters<typeof convertToModelMessages>[0]);
+      const coreMessages = await convertToModelMessages(
+        windowed as Parameters<typeof convertToModelMessages>[0],
+      );
+
+      // Recursive sanitizer to remove `reasoning` keys from the AI SDK payload
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sanitizeMessagesForGroq = (msgs: any[]): any[] => {
+        return msgs.map((msg) => {
+          if (!msg || typeof msg !== "object") return msg;
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { reasoning, ...rest } = msg;
+
+          if (Array.isArray(rest.content)) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            rest.content = rest.content.map((part: any) => {
+              if (part && typeof part === "object") {
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const { reasoning: _r, ...partRest } = part;
+                return partRest;
+              }
+              return part;
+            });
+          }
+
+          return rest;
+        });
+      };
+
+      return sanitizeMessagesForGroq(coreMessages);
     } catch {
       return [{ role: "user" as const, content: messageText }];
     }
@@ -146,10 +237,41 @@ export async function POST(req: Request) {
   });
   console.log(`✅ [+${Date.now() - requestStart}ms] User message stored`);
 
+  const streamErrorMessage = async (errorMsg: string) => {
+    await storeMessage({
+      chatId: activeChatId,
+      role: "assistant",
+      content: errorMsg,
+    });
+    const stream = createUIMessageStream({
+      execute: async ({ writer }) => {
+        writer.write({ type: "start" });
+        const id = generateId();
+        writer.write({ type: "text-start", id });
+        writer.write({ type: "text-delta", delta: errorMsg, id });
+        writer.write({ type: "text-end", id });
+        writer.write({ type: "finish" });
+      },
+      onError: (err) =>
+        err instanceof Error ? err.message : "Error streaming error message",
+    });
+    return createUIMessageStreamResponse({
+      stream,
+      headers: { "X-Chat-Id": activeChatId },
+    });
+  };
+
+  // ── Provider Restriction ──
+  const RESTRICT_TO_GROQ = true; // Toggle this to false to allow other providers
+  if (RESTRICT_TO_GROQ && provider !== "groq") {
+    return await streamErrorMessage(
+      "We are currently optimizing non-Groq models. Please select a Groq model from the model selector to continue!",
+    );
+  }
+
   if (!activeWorkspaceId) {
-    return new Response(
+    return await streamErrorMessage(
       "No workspace selected. Please select a documentation workspace first.",
-      { status: 400 },
     );
   }
 
@@ -159,9 +281,8 @@ export async function POST(req: Request) {
   });
 
   if (!workspace || workspace.DocSource.status !== "ready") {
-    return new Response(
+    return await streamErrorMessage(
       "Documentation is not ready. Please wait for indexing to complete.",
-      { status: 400 },
     );
   }
 
@@ -173,7 +294,8 @@ export async function POST(req: Request) {
   );
 
   // ── Casual message fast-path: skip RAG for greetings / small talk ──
-  if (isCasualMessage(messageText)) {
+  const isCasual = await isCasualMessage(messageText, chatMessages);
+  if (isCasual) {
     console.log(
       `💬 [+${Date.now() - requestStart}ms] Casual message detected — skipping RAG pipeline`,
     );
@@ -234,6 +356,7 @@ export async function POST(req: Request) {
   // ── Wrap the RAG + stream pipeline in a LangSmith root span ──
   // Everything inside this traceable becomes child spans of "chat-request".
   // Auth, message parsing, and DB writes stay outside to keep traces clean.
+
   const runPipeline = traceable(
     async (
       input: { messageText: string },
