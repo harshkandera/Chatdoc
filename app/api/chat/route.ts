@@ -3,15 +3,17 @@ import { createChat } from "@/lib/chat/createChat";
 import { storeMessage } from "@/lib/chat/storeMessage";
 import { prisma } from "@/lib/db/prisma";
 import { searchContext, checkEscalation } from "@/lib/ai/query/handler";
+import { isDomainRelevant } from "@/lib/ai/graph/agent";
 import type { ModelProvider } from "@/lib/ai/models";
 import { getModelOption } from "@/lib/ai/model-options";
 import { ensureUser } from "@/lib/db/user";
 import { getUserSubscription } from "@/lib/subscription";
+import { checkRateLimit } from "@/lib/redis";
 import { polar } from "@/lib/polar";
 import * as ai from "ai";
 import { getAIModel } from "@/lib/ai/providers";
-import { ANSWER_SYSTEM_PROMPT_TEXT } from "@/lib/ai/query/generate";
-import { gradeContextSufficiency } from "@/lib/ai/graph/grader";
+import { buildAnswerSystemPrompt } from "@/lib/ai/query/generate";
+import { buildChatContext } from "@/lib/ai/chat-history";
 import { traceable } from "langsmith/traceable";
 import { wrapAISDK } from "langsmith/experimental/vercel";
 
@@ -115,28 +117,57 @@ async function buildCoreMessages(
         windowed as Parameters<typeof convertToModelMessages>[0],
       );
 
-      // Recursive sanitizer to remove `reasoning` keys from the AI SDK payload
+      // Strip all reasoning content from messages before sending to Groq.
+      //
+      // convertToModelMessages can produce two reasoning shapes:
+      //   1. Top-level `reasoning` property on the message object
+      //   2. Content array items with `type: "reasoning"` (the one that was breaking us)
+      //
+      // We handle both and also drop messages that become empty after stripping.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sanitizeMessagesForGroq = (msgs: any[]): any[] => {
-        return msgs.map((msg) => {
-          if (!msg || typeof msg !== "object") return msg;
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { reasoning, ...rest } = msg;
+        return (
+          msgs
+            .map((msg) => {
+              if (!msg || typeof msg !== "object") return msg;
 
-          if (Array.isArray(rest.content)) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            rest.content = rest.content.map((part: any) => {
-              if (part && typeof part === "object") {
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                const { reasoning: _r, ...partRest } = part;
-                return partRest;
+              // Remove top-level `reasoning` property
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              const { reasoning, ...rest } = msg;
+
+              if (Array.isArray(rest.content)) {
+                // Filter out content parts with type="reasoning" entirely,
+                // then strip any residual `reasoning` property from remaining parts
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                rest.content = rest.content
+                  .filter(
+                    (part: any) =>
+                      !(
+                        part &&
+                        typeof part === "object" &&
+                        part.type === "reasoning"
+                      ),
+                  )
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  .map((part: any) => {
+                    if (part && typeof part === "object") {
+                      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                      const { reasoning: _r, ...partRest } = part;
+                      return partRest;
+                    }
+                    return part;
+                  });
               }
-              return part;
-            });
-          }
 
-          return rest;
-        });
+              return rest;
+            })
+            // Drop messages whose content became an empty array after stripping
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .filter((msg: any) => {
+              if (!Array.isArray(msg.content)) return true;
+              return msg.content.length > 0;
+            })
+        );
       };
 
       return sanitizeMessagesForGroq(coreMessages);
@@ -168,6 +199,26 @@ export async function POST(req: Request) {
     name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
     imageUrl: user.imageUrl,
   });
+
+  // Rate limit: free=20 req/min, pro=60 req/min
+  const subForRate = await getUserSubscription(userId);
+  const isProUser = subForRate?.isActive ?? false;
+  const rateLimit = await checkRateLimit(userId, isProUser ? 60 : 20, 60);
+  if (!rateLimit.allowed) {
+    return new Response(
+      JSON.stringify({
+        error: "Too many requests. Please wait before sending another message.",
+        resetIn: rateLimit.resetIn,
+      }),
+      {
+        status: 429,
+        headers: {
+          "Content-Type": "application/json",
+          "Retry-After": String(rateLimit.resetIn),
+        },
+      },
+    );
+  }
 
   const body = await req.json();
 
@@ -222,10 +273,14 @@ export async function POST(req: Request) {
     });
     activeChatId = chat.id;
   } else if (!activeWorkspaceId) {
-    const chat = await prisma.chat.findUnique({
-      where: { id: activeChatId },
+    // Verify chat belongs to this user before trusting it (#4 chatId IDOR fix)
+    const chat = await prisma.chat.findFirst({
+      where: { id: activeChatId, userId },
       select: { workspaceId: true },
     });
+    if (!chat) {
+      return new Response("Forbidden", { status: 403 });
+    }
     activeWorkspaceId = chat?.workspaceId;
   }
 
@@ -280,7 +335,12 @@ export async function POST(req: Request) {
     include: { DocSource: true },
   });
 
-  if (!workspace || workspace.DocSource.status !== "ready") {
+  // Ownership check — prevent IDOR where an attacker sends another user's workspaceId (#4 fix)
+  if (!workspace || workspace.userId !== userId) {
+    return await streamErrorMessage("Workspace not found or access denied.");
+  }
+
+  if (workspace.DocSource.status !== "ready") {
     return await streamErrorMessage(
       "Documentation is not ready. Please wait for indexing to complete.",
     );
@@ -345,13 +405,46 @@ export async function POST(req: Request) {
     });
   }
 
+  // ── Domain relevance check — fast regex, LLM only if ambiguous ──
+  const domainCheck = await isDomainRelevant(
+    messageText,
+    workspace.DocSource.productName,
+    chatMessages,
+  );
+  if (!domainCheck.relevant) {
+    console.log(
+      `🚫 [+${Date.now() - requestStart}ms] Off-topic query detected: ${domainCheck.reason}`,
+    );
+    const offTopicReply = `This workspace is for **${workspace.DocSource.productName}** documentation. I can only answer questions related to ${workspace.DocSource.productName}.\n\nFor other topics, please create a separate workspace.`;
+    const stream = createUIMessageStream({
+      execute: async ({ writer }) => {
+        writer.write({ type: "start" });
+        const id = generateId();
+        writer.write({ type: "text-start", id });
+        writer.write({ type: "text-delta", delta: offTopicReply, id });
+        writer.write({ type: "text-end", id });
+        writer.write({ type: "finish" });
+      },
+      onError: (err) => (err instanceof Error ? err.message : "Error"),
+    });
+    return createUIMessageStreamResponse({
+      stream,
+      headers: { "X-Chat-Id": activeChatId },
+    });
+  }
+
   // ── Step 1: RAG Search (synchronous — get context chunks) ──
   console.log(`🔍 [+${Date.now() - requestStart}ms] Running RAG search...`);
 
-  // Groq has a strict 6k-8k input token limit on free tier (or 12k TPM)
-  // We must be conservative with context window
-  const isGroq = provider === "groq";
-  const safeTopK = isGroq ? 2 : 5;
+  // ── Build dual chat context: recent messages + summary of older chat ──
+  const chatContext = await buildChatContext(chatMessages);
+  if (chatContext.recentMessages.length > 0) {
+    console.log(
+      `💬 [+${Date.now() - requestStart}ms] Chat context: ${chatContext.recentMessages.length} recent msgs, summary=${chatContext.summary.length > 0 ? chatContext.summary.length + " chars" : "none"}`,
+    );
+  }
+
+  const safeTopK = 5;
 
   // ── Wrap the RAG + stream pipeline in a LangSmith root span ──
   // Everything inside this traceable becomes child spans of "chat-request".
@@ -366,7 +459,10 @@ export async function POST(req: Request) {
         toolInput: Record<string, unknown>,
       ) => void,
       emitToolEnd: (toolCallId: string, output: unknown) => void,
-    ) => {
+    ): Promise<{
+      streamResult: ReturnType<typeof streamText>;
+      sources: string[];
+    }> => {
       // ── CoT Step: RAG Search ──
       const searchToolId = generateId();
       emitToolStart("search_docs", searchToolId, {
@@ -375,7 +471,7 @@ export async function POST(req: Request) {
 
       let search;
       try {
-        search = await searchContext(messageText, activeWorkspaceId!, {
+        search = await searchContext(input.messageText, activeWorkspaceId!, {
           provider,
           modelId,
           topK: safeTopK,
@@ -392,89 +488,81 @@ export async function POST(req: Request) {
             .map((c: { metadata?: { url?: string } }) => c.metadata?.url)
             .filter(Boolean),
         ),
-      ).slice(0, 3);
+      ) as string[];
       emitToolEnd(searchToolId, {
         chunks: search.chunks.length,
         confidence: search.confidence,
-        urls: uniqueUrls,
+        urls: uniqueUrls.slice(0, 5),
+        wasReranked: search.wasReranked ?? false,
       });
 
       console.log(
         `✅ [+${Date.now() - requestStart}ms] RAG search complete: ${search.chunks.length} chunks, confidence=${search.confidence}`,
       );
 
-      // ── CoT Step: LLM Context Grader ──
       let systemPrompt = search.systemPrompt;
+      let usedEscalation = false;
+      let escalationSources: string[] = [];
 
-      const graderToolId = generateId();
-      emitToolStart("context_grader", graderToolId, {
-        chunks: search.chunks.length,
-      });
-
-      console.log(
-        `🧠 [+${Date.now() - requestStart}ms] Running LLM context grader...`,
-      );
-      const isContextSufficient = await gradeContextSufficiency(
-        messageText,
-        search.chunks,
-      );
-
-      emitToolEnd(graderToolId, { isContextSufficient });
-
-      console.log(
-        `🧠 [+${Date.now() - requestStart}ms] Grader result: isContextSufficient=${isContextSufficient}`,
-      );
-
-      if (!isContextSufficient && isPro) {
-        // ── CoT Step: Deep Research (Escalation) ──
+      if (isPro) {
+        // ── CoT Step: Deep Research (Pro) ──
         const escalationToolId = generateId();
         emitToolStart("deep_research", escalationToolId, {
-          reason: "Context insufficient — escalating to deep research",
+          reason: "Pro user — LLM decides if web search needed",
         });
 
         console.log(
-          `🔄 [+${Date.now() - requestStart}ms] Context insufficient + Pro user — checking escalation...`,
+          `🔄 [+${Date.now() - requestStart}ms] Pro user — running agent (LLM decides to answer or search)...`,
         );
         const escalation = await checkEscalation(
           messageText,
           activeWorkspaceId!,
           search,
           isPro,
-          isContextSufficient,
+          undefined, // workspace — handler will fetch
+          chatContext.recentMessages,
+          chatContext.summary,
         );
         if (escalation) {
+          escalationSources = escalation.sources;
           emitToolEnd(escalationToolId, {
             status: "Agent research complete",
             sources: escalation.sources.length,
+            urls: escalation.sources.slice(0, 5),
+            scrapedPages: escalation.sources.slice(0, 5).map((url: string) => {
+              try {
+                const { pathname, hostname } = new URL(url);
+                const title =
+                  pathname === "/"
+                    ? hostname
+                    : decodeURIComponent(
+                        pathname.split("/").filter(Boolean).pop() || hostname,
+                      ).replace(/[-_]/g, " ");
+                return { url, title };
+              } catch {
+                return { url, title: url };
+              }
+            }),
           });
 
           console.log(
             `🧪 [+${Date.now() - requestStart}ms] Agent provided answer (${escalation.answer.length} chars)`,
           );
-          systemPrompt = `${ANSWER_SYSTEM_PROMPT_TEXT}
+          usedEscalation = true;
+          const agentAnswer = escalation.answer.slice(0, 6000);
+          systemPrompt = `${buildAnswerSystemPrompt(workspace.DocSource.productName)}
 
-The following answer was generated by a deep research agent that searched web documentation.
-Use it as your primary source and rephrase it clearly for the user.
-Cite sources where provided.
+Documentation research results:
+${agentAnswer}
 
-Agent Research Result:
-${escalation.answer}
+${escalation.sources.length > 0 ? `Sources:\n${escalation.sources.map((s, i) => `[${i + 1}] ${s}`).join("\n")}` : ""}
 
-Sources:
-${escalation.sources.map((s, i) => `[${i + 1}] ${s}`).join("\n")}`;
+Present the above research findings clearly to the user. Do not call any tools.`;
         } else {
           emitToolEnd(escalationToolId, {
-            status: "Escalation unavailable — using RAG answer",
+            status: "No search needed — answering from indexed docs",
           });
-          console.log(
-            `⚠️ [+${Date.now() - requestStart}ms] Escalation returned null for Pro user — falling back to RAG answer`,
-          );
         }
-      } else if (!isContextSufficient && !isPro) {
-        console.log(
-          `🔄 [+${Date.now() - requestStart}ms] Context insufficient + Free user — adding upgrade hint`,
-        );
-        systemPrompt += `\n\nNote: The search results have limited coverage for this query. If you cannot provide a satisfactory answer from the context, let the user know and briefly suggest they upgrade to Pro for access to Deep Research mode, which can search the official documentation directly for better answers.`;
       }
 
       // ── Step 3: Stream answer using AI SDK streamText ──
@@ -494,8 +582,15 @@ ${escalation.sources.map((s, i) => `[${i + 1}] ${s}`).join("\n")}`;
           systemPrompt.slice(0, MAX_SYSTEM_PROMPT_CHARS) + "...[truncated]";
       }
 
-      return streamText({
-        model: getAIModel(provider, modelId),
+      // After escalation, use a reliable text-generation model.
+      // gpt-oss-120b (and other agentic models) may try to call tools even
+      // when none are registered, causing a Groq API crash.
+      const synthesisModel = usedEscalation
+        ? getAIModel("groq", "llama-3.3-70b-versatile")
+        : getAIModel(provider, modelId);
+
+      const streamResult = streamText({
+        model: synthesisModel,
         system: systemPrompt,
         messages: coreMessages,
         experimental_telemetry: {
@@ -547,6 +642,11 @@ ${escalation.sources.map((s, i) => `[${i + 1}] ${s}`).join("\n")}`;
           }
         },
       });
+
+      // On the escalation path, surface the agent's scraped URLs.
+      // On the normal RAG path, surface the chunk source URLs instead.
+      const finalSources = usedEscalation ? escalationSources : uniqueUrls;
+      return { streamResult, sources: finalSources };
     },
     {
       name: "chat-request",
@@ -588,22 +688,36 @@ ${escalation.sources.map((s, i) => `[${i + 1}] ${s}`).join("\n")}`;
         });
       };
 
-      let result;
+      let pipelineResult;
       try {
-        result = await runPipeline({ messageText }, emitToolStart, emitToolEnd);
+        pipelineResult = await runPipeline(
+          { messageText },
+          emitToolStart,
+          emitToolEnd,
+        );
       } catch (error) {
         console.error("Pipeline error before stream generation:", error);
         throw error;
       }
 
-      // Merge the streamText result into our UI message stream.
-      // sendStart: false prevents creating a second assistant message —
-      // the outer createUIMessageStream already started one.
-      writer.merge(result.toUIMessageStream({ sendStart: false }));
+      const { streamResult, sources } = pipelineResult;
+
+      // Emit source-url parts so the UI Sources tray can display them.
+      for (const url of sources) {
+        writer.write({
+          type: "source-url",
+          sourceId: url,
+          url,
+        } as Parameters<typeof writer.write>[0]);
+      }
+
+      // Merge the actual streamText result into our UI message stream.
+      writer.merge(streamResult.toUIMessageStream({ sendStart: false }));
     },
     onError: (error) => {
       console.error("[UIMessageStream] error:", error);
-      return error instanceof Error ? error.message : "Stream error";
+      // Do not leak raw error details (stack traces, DB messages) to the client (#29 fix)
+      return "An internal error occurred. Please try again.";
     },
   });
 

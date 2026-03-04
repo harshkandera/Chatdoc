@@ -4,17 +4,16 @@ import { ModelProvider } from "../models";
 import { SearchResult } from "../pinecone";
 import { shouldDecompose } from "./shouldDecompose";
 import { decomposeQuery, DecomposedQuery } from "./decompose";
-import { searchDocs, searchMultiple } from "./search";
+import { graphAugmentedSearch, searchDocs, searchMultiple } from "./search";
 import { getUserSubscription } from "@/lib/subscription";
 import {
   generateAnswer,
   generateCombinedAnswer,
   buildAnswerContext,
   buildCombinedContext,
-  ANSWER_SYSTEM_PROMPT_TEXT,
+  buildAnswerSystemPrompt,
   GeneratedAnswer,
 } from "./generate";
-import { gradeContextSufficiency } from "../graph";
 import { traceable } from "langsmith/traceable";
 
 export interface SearchContextResult {
@@ -26,6 +25,8 @@ export interface SearchContextResult {
   context: string;
   systemPrompt: string;
   queries?: DecomposedQuery[];
+  /** Per-query results (only set when wasDecomposed=true) */
+  queryResults?: Map<string, { intent: string; chunks: SearchResult[] }>;
 }
 
 export interface QueryResult extends GeneratedAnswer {
@@ -65,12 +66,13 @@ export const searchContext = traceable(
       throw new Error("Workspace or DocSource not found");
     }
 
-    // Step 1: Quick RAG search
-    console.log(`   📋 [searchContext] Running initial RAG search...`);
-    const initialSearch = await searchDocs(prompt, workspace.docSourceId, {
-      topK,
-      provider,
-    });
+    // Step 1: Graph-augmented RAG search (falls back to pure vector when Neo4j is off)
+    console.log(`   📋 [searchContext] Running graph-augmented RAG search...`);
+    const initialSearch = await graphAugmentedSearch(
+      prompt,
+      workspace.docSourceId,
+      { topK, provider },
+    );
 
     console.log(
       `   📋 [searchContext +${Date.now() - handlerStart}ms] Initial search: ${initialSearch.chunks.length} chunks, confidence=${initialSearch.confidence}`,
@@ -101,7 +103,7 @@ export const searchContext = traceable(
         wasDecomposed: false,
         wasReranked: initialSearch.wasReranked,
         context,
-        systemPrompt: `${ANSWER_SYSTEM_PROMPT_TEXT}\n\nContext:\n${context}`,
+        systemPrompt: `${buildAnswerSystemPrompt(workspace.DocSource.productName)}\n\nContext:\n${context}`,
       };
     }
 
@@ -154,7 +156,8 @@ export const searchContext = traceable(
       wasDecomposed: true,
       wasReranked: anyReranked,
       context,
-      systemPrompt: `You are a helpful documentation assistant. Answer complex questions by synthesizing information from multiple sources.
+      queryResults,
+      systemPrompt: `You are a helpful documentation assistant for ${workspace.DocSource.productName}. Answer complex questions by synthesizing information from multiple sources.
 
 Guidelines:
 - The context is organized by sub-topics that relate to the original question
@@ -187,7 +190,13 @@ export const checkEscalation = traceable(
     workspaceId: string,
     searchResult: SearchContextResult,
     isPro: boolean,
-    isContextSufficient: boolean,
+    /** Pass workspace to avoid redundant DB query */
+    workspace?: {
+      docSourceId: string;
+      DocSource: { rootUrl: string; productName: string };
+    },
+    chatHistory: { role: string; content: string }[] = [],
+    chatSummary: string = "",
   ): Promise<{
     answer: string;
     sources: string[];
@@ -198,27 +207,34 @@ export const checkEscalation = traceable(
       console.log(`   ⏭️ [checkEscalation] Skipped: user is not Pro`);
       return null;
     }
-    if (isContextSufficient) {
+    if (!process.env.TAVILY_API_KEY && !process.env.SEARXNG_URL) {
       console.log(
-        `   ⏭️ [checkEscalation] Skipped: LLM grader says context is sufficient`,
+        `   ⏭️ [checkEscalation] Skipped: no search provider configured`,
       );
       return null;
     }
-    if (!process.env.TAVILY_API_KEY) {
-      console.log(`   ⏭️ [checkEscalation] Skipped: TAVILY_API_KEY not set`);
-      return null;
-    }
 
-    const workspace = await prisma.workspace.findUnique({
-      where: { id: workspaceId },
-      include: { DocSource: true },
-    });
+    // Always escalate to agent — the gradeNode inside the agent uses the LLM
+    // grader to decide sufficiency. High-score cases fast-bypass the grader
+    // and go straight to generate without an extra LLM call.
+    console.log(
+      `   🔄 [checkEscalation] Escalating to agent (grader will decide) — confidence=${searchResult.confidence}, topScore=${(searchResult.chunks[0]?.score ?? 0).toFixed(3)}, chunks=${searchResult.chunks.length}`,
+    );
 
-    if (!workspace?.DocSource) {
-      console.log(
-        `   ⏭️ [checkEscalation] Skipped: workspace or DocSource not found`,
-      );
-      return null;
+    // Use passed workspace or fetch if not provided
+    let ws = workspace;
+    if (!ws) {
+      const fetched = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        include: { DocSource: true },
+      });
+      if (!fetched?.DocSource) {
+        console.log(
+          `   ⏭️ [checkEscalation] Skipped: workspace or DocSource not found`,
+        );
+        return null;
+      }
+      ws = { docSourceId: fetched.docSourceId, DocSource: fetched.DocSource };
     }
 
     console.log(
@@ -228,10 +244,14 @@ export const checkEscalation = traceable(
     try {
       const agentResult = await runQueryAgent(
         prompt,
-        workspace.docSourceId,
-        workspace.DocSource.rootUrl,
-        workspace.DocSource.productName,
+        ws.docSourceId,
+        ws.DocSource.rootUrl,
+        ws.DocSource.productName,
         true,
+        undefined, // onStream
+        chatHistory,
+        chatSummary,
+        searchResult.chunks, // preloadedResults — already Cohere-reranked, skip retrieve+rerank
       );
 
       return {
@@ -258,31 +278,24 @@ export async function handleQuery(
 ): Promise<QueryResult> {
   const { provider = "groq", modelId } = options;
 
+  // Fetch workspace once and reuse everywhere
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    include: { DocSource: true },
+  });
+  if (!workspace?.DocSource) {
+    throw new Error("Workspace or DocSource not found");
+  }
+
   const search = await searchContext(prompt, workspaceId, options);
 
-  // Check escalation (fetch subscription for Pro check)
-  const wsForSub = await prisma.workspace.findUnique({
-    where: { id: workspaceId },
-    select: { userId: true },
-  });
-  const subscription = wsForSub
-    ? await getUserSubscription(wsForSub.userId)
-    : null;
+  const subscription = await getUserSubscription(workspace.userId);
   const isPro = subscription?.isActive ?? false;
 
-  // LLM context grader — the single source of truth for routing
-  const isContextSufficient = await gradeContextSufficiency(
-    prompt,
-    search.chunks,
-  );
-
-  const escalation = await checkEscalation(
-    prompt,
-    workspaceId,
-    search,
-    isPro,
-    isContextSufficient,
-  );
+  const escalation = await checkEscalation(prompt, workspaceId, search, isPro, {
+    docSourceId: workspace.docSourceId,
+    DocSource: workspace.DocSource,
+  });
   if (escalation) {
     return {
       content: escalation.answer,
@@ -300,29 +313,26 @@ export async function handleQuery(
   }
 
   // Generate answer using non-streaming path
+  const pName = workspace.DocSource.productName;
   let answer: GeneratedAnswer;
-  if (search.wasDecomposed && search.queries) {
-    const queryResults = new Map<
-      string,
-      { intent: string; chunks: SearchResult[] }
-    >();
-    // Rebuild queryResults from search chunks
-    for (const q of search.queries) {
-      queryResults.set(q.query, {
-        intent: q.intent,
-        chunks: search.chunks.filter(
-          (c) => c.metadata.url, // include all chunks
-        ),
-      });
-    }
+
+  if (search.wasDecomposed && search.queryResults) {
+    // Reuse per-query results from searchContext (avoids double searchMultiple)
     answer = await generateCombinedAnswer(
       prompt,
-      queryResults,
+      search.queryResults,
+      pName,
       provider,
       modelId,
     );
   } else {
-    answer = await generateAnswer(prompt, search.chunks, provider, modelId);
+    answer = await generateAnswer(
+      prompt,
+      search.chunks,
+      pName,
+      provider,
+      modelId,
+    );
   }
 
   return {

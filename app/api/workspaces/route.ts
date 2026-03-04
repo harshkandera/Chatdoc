@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import {
   findOrCreateDocSource,
   findOrCreateWorkspace,
+  isCheckpointValid,
+  type IndexCheckpoint,
 } from "@/lib/db/docSource";
 import { inngest } from "@/lib/inngest/client";
 import { checkDocLimit } from "@/lib/subscription";
@@ -23,7 +25,34 @@ export async function GET() {
   const workspaces = await prisma.workspace.findMany({
     where: { userId },
     include: {
-      DocSource: true,
+      DocSource: {
+        select: {
+          id: true,
+          canonicalUrl: true,
+          rootUrl: true,
+          productKey: true,
+          productName: true,
+          docType: true,
+          version: true,
+          description: true,
+          status: true,
+          statusMessage: true,
+          lastIndexedAt: true,
+          documentCount: true,
+          chunkCount: true,
+          lastAutoReindexAt: true,
+          failedUrls: true,
+          changeStrategy: true,
+          pollIntervalHours: true,
+          lastPollAt: true,
+          lastChangeAt: true,
+          lastChangeType: true,
+          changeDescription: true,
+          indexCheckpoint: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
       Chat: {
         orderBy: { updatedAt: "desc" },
         take: 5,
@@ -40,7 +69,11 @@ export async function GET() {
   // Transform Chat to chats for frontend consistency
   const transformed = workspaces.map((w) => ({
     ...w,
+    lastSeenChangeAt: w.lastSeenChangeAt,
     chats: w.Chat,
+    canResume:
+      w.DocSource.status === "error" &&
+      isCheckpointValid(w.DocSource.indexCheckpoint as IndexCheckpoint | null),
   }));
 
   return NextResponse.json(transformed);

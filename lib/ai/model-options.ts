@@ -1,4 +1,4 @@
-export type ModelProvider = "groq" | "openai" | "gemini";
+export type ModelProvider = "groq" | "openai" | "gemini" | "ollama";
 
 export interface ModelOption {
   id: string;
@@ -68,7 +68,7 @@ export const MODEL_OPTIONS: ModelOption[] = [
   },
 ];
 
-export const DEFAULT_MODEL_ID = "groq/gpt-oss-120b";
+export const DEFAULT_MODEL_ID = "groq/llama-3.3-70b";
 
 export function getModelOption(id: string): ModelOption {
   return MODEL_OPTIONS.find((m) => m.id === id) || MODEL_OPTIONS[0];

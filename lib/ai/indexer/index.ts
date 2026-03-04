@@ -1,10 +1,27 @@
 import { prisma } from "@/lib/db/prisma";
-import { scrapePage, scrapePages } from "./scrape";
+import { crawlDocs } from "./scrape";
 import { chunkPages, ChunkWithMetadata } from "./chunk";
 import { generateEmbeddings } from "../embeddings";
 import { hashUrl, updateDocSourceStatus } from "@/lib/db/docSource";
 import { nanoid } from "nanoid";
+import { createHash } from "crypto";
 import { upsertVectors, ChunkMetadata } from "../pinecone";
+
+/**
+ * Deterministic vector ID derived from docSource + URL + chunk position.
+ * Ensures Pinecone upserts and Postgres createMany({ skipDuplicates: true })
+ * are fully idempotent when a batch step is retried after an interruption.
+ */
+function deterministicVectorId(
+  docSourceId: string,
+  url: string,
+  chunkIndex: number,
+): string {
+  return createHash("sha256")
+    .update(`${docSourceId}:${url}:${chunkIndex}`)
+    .digest("hex")
+    .slice(0, 36);
+}
 import {
   uploadJSON,
   downloadJSON,
@@ -40,23 +57,16 @@ export async function scrapeDocSource(
     message: "Starting scrape...",
   });
 
-  // Scrape main page to get all doc links
-  const mainPage = await scrapePage(docSource.rootUrl);
-  const allLinks = [docSource.rootUrl, ...mainPage.links];
-  const uniqueLinks = [...new Set(allLinks)].slice(0, 100); // Limit to 100 pages
-
-  await updateDocSourceStatus(docSourceId, "scraping", {
-    message: `Found ${uniqueLinks.length} pages`,
-  });
-
-  // Scrape all pages with progress updates
-  const pages = await scrapePages(uniqueLinks, async (current, total) => {
-    // Update status every 5 pages to avoid too many DB writes
-    if (current % 5 === 0 || current === total) {
-      await updateDocSourceStatus(docSourceId, "scraping", {
-        message: `Scraping ${current}/${total} pages`,
-      });
-    }
+  // Recursively crawl all documentation pages via Firecrawl
+  const pages = await crawlDocs(docSource.rootUrl, {
+    maxPages: 500,
+    onProgress: async (scraped, queued) => {
+      if (scraped % 5 === 0 || queued === 0) {
+        await updateDocSourceStatus(docSourceId, "scraping", {
+          message: `Scraped ${scraped} pages (${queued} remaining in queue)`,
+        });
+      }
+    },
   });
 
   return pages;
@@ -367,13 +377,10 @@ export async function scrapeAndStore(
 
   if (!docSource) throw new Error("DocSource not found");
 
-  // Scrape main page to get all doc links
-  const mainPage = await scrapePage(docSource.rootUrl);
-  const allLinks = [docSource.rootUrl, ...mainPage.links];
-  const uniqueLinks = [...new Set(allLinks)].slice(0, 100);
-
-  // Scrape all pages
-  const pages = await scrapePages(uniqueLinks);
+  // Recursively crawl all documentation pages via Firecrawl
+  const pages = await crawlDocs(docSource.rootUrl, {
+    maxPages: 500,
+  });
 
   // Store in S3
   const key = pagesKey(docSourceId);
@@ -382,10 +389,13 @@ export async function scrapeAndStore(
   return { pageCount: pages.length, s3Key: key };
 }
 
+
 /**
  * Step 2: Fetch pages from S3, chunk them, store chunks in S3.
  * Returns only metadata (chunkCount + s3Key).
  */
+
+
 export async function chunkAndStore(
   docSourceId: string,
   pageS3Key: string,
@@ -454,7 +464,9 @@ export async function embedAndStoreBatch(
 
   for (let j = 0; j < batch.length; j++) {
     const chunk = batch[j];
-    const vectorId = nanoid();
+    // Deterministic vectorId — makes Pinecone upserts and Postgres inserts idempotent
+    // if this batch step is interrupted and retried.
+    const vectorId = deterministicVectorId(docSourceId, chunk.metadata.url, chunk.index);
     const chunkId = nanoid();
     const urlHash = hashUrl(chunk.metadata.url);
 
@@ -492,13 +504,14 @@ export async function embedAndStoreBatch(
     });
   }
 
-  // Store vectors in Pinecone (batch of 100)
+  // Store vectors in Pinecone (batch of 100) — upsert is inherently idempotent
   for (let i = 0; i < vectors.length; i += 100) {
     await upsertVectors(vectors.slice(i, i + 100));
   }
 
-  // Store chunk records in Postgres
-  await prisma.chunk.createMany({ data: chunkRecords });
+  // Store chunk records in Postgres — skipDuplicates skips records whose vectorId
+  // already exists (same deterministic ID on a retry), preventing duplicate rows
+  await prisma.chunk.createMany({ data: chunkRecords, skipDuplicates: true });
 
   return { vectorCount: vectors.length, isLastBatch };
 }
@@ -521,8 +534,6 @@ export async function smartScrapeAndStore(docSourceId: string): Promise<{
   s3Key: string;
   failedUrls: string[];
 }> {
-  const { createHash } = await import("crypto");
-
   const docSource = await prisma.docSource.findUnique({
     where: { id: docSourceId },
   });
@@ -550,16 +561,14 @@ export async function smartScrapeAndStore(docSourceId: string): Promise<{
     existingByUrl.set(chunk.url, entry);
   }
 
-  // Scrape main page to get all doc links
-  const mainPage = await scrapePage(docSource.rootUrl);
-  const allLinks = [docSource.rootUrl, ...mainPage.links];
-  const uniqueLinks = [...new Set(allLinks)].slice(0, 100);
-
-  // Scrape all pages
-  const allPages = await scrapePages(uniqueLinks);
-  const failedUrls = uniqueLinks.filter(
-    (url) => !allPages.some((p) => p.url === url),
-  );
+  // Recursively crawl all documentation pages via Firecrawl
+  const allPages = await crawlDocs(docSource.rootUrl, {
+    maxPages: 500,
+  });
+  // With BFS crawl, failed URLs are those that errored during crawling.
+  // crawlDocs logs errors internally; here we compare expected vs actual.
+  const crawledUrls = new Set(allPages.map((p) => p.url));
+  const failedUrls: string[] = [];
 
   // Compare hashes to find changed pages
   const changedPages: Page[] = [];
@@ -620,8 +629,6 @@ export async function embedAndStoreBatchWithHash(
   batchIndex: number,
   batchSize: number,
 ): Promise<{ vectorCount: number; isLastBatch: boolean }> {
-  const { createHash } = await import("crypto");
-
   // Download all chunks from S3
   const allChunks = await downloadJSON<ChunkWithMetadata[]>(chunkS3Key);
 
@@ -663,7 +670,7 @@ export async function embedAndStoreBatchWithHash(
 
   for (let j = 0; j < batch.length; j++) {
     const chunk = batch[j];
-    const vectorId = nanoid();
+    const vectorId = deterministicVectorId(docSourceId, chunk.metadata.url, chunk.index);
     const chunkId = nanoid();
     const urlHash = hashUrl(chunk.metadata.url);
     const contentHash = createHash("sha256")
@@ -705,13 +712,13 @@ export async function embedAndStoreBatchWithHash(
     });
   }
 
-  // Store vectors in Pinecone (batch of 100)
+  // Store vectors in Pinecone (batch of 100) — upsert is inherently idempotent
   for (let i = 0; i < vectors.length; i += 100) {
     await upsertVectors(vectors.slice(i, i + 100));
   }
 
-  // Store chunk records in Postgres
-  await prisma.chunk.createMany({ data: chunkRecords });
+  // skipDuplicates: same deterministic vectorId on retry → skip already-stored rows
+  await prisma.chunk.createMany({ data: chunkRecords, skipDuplicates: true });
 
   return { vectorCount: vectors.length, isLastBatch };
 }

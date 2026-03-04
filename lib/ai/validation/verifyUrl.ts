@@ -1,49 +1,96 @@
 import { invokeModel, ModelProvider } from "../models";
+import { tavily } from "@tavily/core";
+import { normalizeUrl } from "@/lib/db/docSource";
+import { prisma } from "@/lib/db/prisma";
 
+type SearchResult = { title: string; url: string; snippet: string };
 
+/**
+ * Search via SearXNG (primary) with Tavily fallback.
+ * Set SEARXNG_URL for self-hosted SearXNG.
+ * Set TAVILY_API_KEY for Tavily fallback.
+ * Returns [] if neither is configured.
+ */
 async function searchWeb(
   query: string,
   maxResults: number = 5,
-): Promise<{ title: string; url: string; snippet: string }[]> {
-  const apiKey = process.env.TAVILY_API_KEY;
+): Promise<SearchResult[]> {
+  // ── Primary: SearXNG ──────────────────────────────────────────────────────
+  const searxngUrl = process.env.SEARXNG_URL;
+  if (searxngUrl) {
+    try {
+      const url = new URL("/search", searxngUrl);
+      url.searchParams.set("q", query);
+      url.searchParams.set("format", "json");
+      url.searchParams.set("categories", "general");
+      url.searchParams.set("language", "en");
+      url.searchParams.set("pageno", "1");
 
-  if (!apiKey) {
-    console.warn("TAVILY_API_KEY not set, skipping web search");
-    return [];
+      const response = await fetch(url.toString(), {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(8000), // 8s — don't block workspace creation
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const results: SearchResult[] = (data.results || [])
+          .slice(0, maxResults)
+          .map((r: { title: string; url: string; content?: string }) => ({
+            title: r.title,
+            url: r.url,
+            snippet: r.content?.slice(0, 200) || "",
+          }));
+        if (results.length > 0) return results;
+        console.warn("[verifyUrl] SearXNG returned 0 results, trying Tavily");
+      } else {
+        console.warn(
+          `[verifyUrl] SearXNG returned ${response.status}, trying Tavily`,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        `[verifyUrl] SearXNG failed (${(err as Error).message}), trying Tavily`,
+      );
+    }
   }
 
-  try {
-    const response = await fetch("https://api.tavily.com/search", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        api_key: apiKey,
-        query,
-        max_results: maxResults,
-        search_depth: "basic",
-      }),
-    });
-
-    if (!response.ok) {
-      console.error("Tavily search failed:", await response.text());
-      return [];
-    }
-
-    const data = await response.json();
-
-    return (data.results || []).map(
-      (r: { title: string; url: string; content: string }) => ({
+  // ── Fallback: Tavily ──────────────────────────────────────────────────────
+  const tavilyKey = process.env.TAVILY_API_KEY;
+  if (tavilyKey) {
+    try {
+      const client = tavily({ apiKey: tavilyKey });
+      const response = await client.search(query, {
+        maxResults,
+        includeRawContent: false,
+      });
+      return response.results.map((r) => ({
         title: r.title,
         url: r.url,
-        snippet: r.content?.slice(0, 200) || "",
-      }),
-    );
-  } catch (error) {
-    console.error("Search error:", error);
-    return [];
+        snippet: (r.content || "").slice(0, 200),
+      }));
+    } catch (err) {
+      console.error("[verifyUrl] Tavily error:", err);
+    }
   }
+
+  if (!searxngUrl && !tavilyKey) {
+    console.warn("[verifyUrl] Neither SEARXNG_URL nor TAVILY_API_KEY set");
+  }
+  return [];
+}
+
+/**
+ * Strip subdomains like "docs.", "developer.", "api." to get the product name
+ * for a better search query.
+ * e.g. "docs.stripe.com" → "stripe"
+ *      "developer.mozilla.org" → "mozilla"
+ *      "nextjs.org" → "nextjs"
+ */
+function extractProductName(domain: string): string {
+  const stripped = domain
+    .replace(/^(docs|developer|api|developers|reference|help)\./i, "")
+    .split(".")[0];
+  return stripped;
 }
 
 export interface UrlBreakdown {
@@ -125,7 +172,7 @@ Rules:
 
 export async function verifyDocumentationUrl(
   inputUrl: string,
-  provider: ModelProvider = "groq",
+  provider: ModelProvider = (process.env.SMALL_MODEL_PROVIDER || "groq") as ModelProvider,
 ): Promise<VerificationResult> {
 
   let breakdown: UrlBreakdown;
@@ -148,7 +195,7 @@ export async function verifyDocumentationUrl(
     };
   }
 
-  const searchQuery = `${breakdown.domain} official documentation`;
+  const searchQuery = `${extractProductName(breakdown.domain)} official documentation`;
 
   const searchResults = await searchWeb(searchQuery, 5);
 
@@ -186,7 +233,8 @@ ${searchResults.map((r, i) => `${i + 1}. ${r.title}\n   URL: ${r.url}\n   ${r.sn
       isValid: true,
       isOfficialDocs: result.isOfficialDocs ?? false,
       confidence: result.confidence ?? "low",
-      rootDocsUrl: result.rootDocsUrl || breakdown.possibleRoots[0],
+      // possibleRoots[0] = deepest path, possibleRoots[last] = origin (safest fallback)
+      rootDocsUrl: result.rootDocsUrl || breakdown.possibleRoots[breakdown.possibleRoots.length - 1],
       userUrlWithinDocs: result.userUrlWithinDocs ?? true,
       suggestedName: result.suggestedName || breakdown.domain,
       product: result.product || "",
@@ -331,42 +379,63 @@ function validateByPatterns(breakdown: UrlBreakdown): VerificationResult {
 }
 
 /**
- * Find or suggest existing workspace for a URL
+ * Check whether this doc source already exists for the user.
+ * Matches via DocSource.canonicalUrl (normalized) or domain prefix,
+ * then checks if the user has a Workspace pointing to that DocSource.
  */
-
-
 export async function findMatchingWorkspace(
   url: string,
   userId: string,
-  prisma: { workspace: { findFirst: (args: { where: object }) => Promise<{ id: string } | null> } },
-): Promise<{ workspaceId: string | null; isExact: boolean }> {
-  const breakdown = breakdownUrl(url);
+): Promise<{ workspaceId: string | null; docSourceId: string | null; isExact: boolean }> {
+  const canonical = normalizeUrl(url);
 
-  // Check each possible root URL
-  for (const possibleRoot of breakdown.possibleRoots) {
-    const workspace = await prisma.workspace.findFirst({
-      where: {
-        userId,
-        sourceUrl: possibleRoot,
-      },
-    });
-
-    if (workspace) {
-      return { workspaceId: workspace.id, isExact: true };
-    }
-  }
-
-  // Check for partial domain match
-  const domainMatch = await prisma.workspace.findFirst({
-    where: {
-      userId,
-      sourceUrl: { contains: breakdown.domain },
-    },
+  // 1. Exact canonical URL match
+  const exactDocSource = await prisma.docSource.findUnique({
+    where: { canonicalUrl: canonical },
+    select: { id: true },
   });
 
-  if (domainMatch) {
-    return { workspaceId: domainMatch.id, isExact: false };
+  if (exactDocSource) {
+    const workspace = await prisma.workspace.findUnique({
+      where: { userId_docSourceId: { userId, docSourceId: exactDocSource.id } },
+      select: { id: true },
+    });
+    return {
+      workspaceId: workspace?.id ?? null,
+      docSourceId: exactDocSource.id,
+      isExact: true,
+    };
   }
 
-  return { workspaceId: null, isExact: false };
+  // 2. Domain-prefix match — user gave a deep URL but we already indexed the root
+  let hostname = "";
+  try {
+    hostname = new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return { workspaceId: null, docSourceId: null, isExact: false };
+  }
+
+  const candidates = await prisma.docSource.findMany({
+    where: { canonicalUrl: { startsWith: hostname } },
+    select: { id: true, canonicalUrl: true },
+  });
+
+  const related = candidates.find(
+    (c) => canonical.startsWith(c.canonicalUrl) || c.canonicalUrl.startsWith(canonical),
+  );
+
+  if (related) {
+    const workspace = await prisma.workspace.findUnique({
+      where: { userId_docSourceId: { userId, docSourceId: related.id } },
+      select: { id: true },
+    });
+    return {
+      workspaceId: workspace?.id ?? null,
+      docSourceId: related.id,
+      isExact: false,
+    };
+  }
+
+  return { workspaceId: null, docSourceId: null, isExact: false };
 }
+

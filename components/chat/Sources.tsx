@@ -14,7 +14,7 @@ function titleFromUrl(url: string): string {
     const { pathname, hostname } = new URL(url);
     if (!pathname || pathname === "/") return hostname;
     const segments = pathname.split("/").filter(Boolean);
-    const last = segments[segments.length - 1] ?? "";
+    const last = decodeURIComponent(segments[segments.length - 1] ?? "");
     return (
       last
         .replace(/[-_]/g, " ")

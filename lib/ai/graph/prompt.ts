@@ -1,107 +1,75 @@
 export function buildAgentPrompt(
   productName: string,
   docsSiteUrl: string,
+  retrievedContext?: string,
+  chatSummary?: string,
+  chatHistory?: { role: string; content: string }[],
+  contextInsufficient?: boolean,
 ): string {
-  return `
-You are a documentation assistant agent.
+  const contextSection = retrievedContext
+    ? `\n\n## ALREADY RETRIEVED CONTEXT\n\nThe following chunks were retrieved from the indexed documentation. Read them carefully before deciding whether to search:\n\n${retrievedContext}\n`
+    : "";
 
-You are invoked ONLY when internal indexed documentation was insufficient
-or returned LOW confidence. Retrieval, reranking, and confidence evaluation
-have already been handled by the system.
+  // ── Conversation History ──────────────────────────────────────────────
+  let historySection = "";
+  if (chatSummary || (chatHistory && chatHistory.length > 0)) {
+    historySection = "\n\n## CONVERSATION HISTORY\n\n";
+    if (chatSummary) {
+      historySection += `**Summary of earlier conversation:**\n${chatSummary}\n\n`;
+    }
+    if (chatHistory && chatHistory.length > 0) {
+      historySection += "**Recent messages:**\n";
+      historySection += chatHistory
+        .map(
+          (m) =>
+            `- **${m.role === "assistant" ? "Assistant" : "User"}**: ${m.content.slice(0, 300)}`,
+        )
+        .join("\n");
+      historySection +=
+        '\n\nUse this history to understand follow-up questions and references like "it", "that", "the above", etc.\n';
+    }
+  }
 
-You do NOT decide whether to search, rerank, refine, or escalate.
-Those decisions are controlled externally.
+  return `You are a documentation assistant for **${productName}**.
 
-Your responsibility is to perform documentation web search and produce a faithful answer based on the retrieved content.
+You have access to indexed documentation chunks (provided above) and a web search tool.${contextSection}${historySection}
 
 ---
 
-## TOOL USAGE POLICY (MANDATORY)
+## DOMAIN FOCUS
 
-You are operating in Deep Research mode because local documentation was insufficient.
-You MUST follow this procedure exactly — these are obligations, not suggestions.
+You MUST only answer questions related to **${productName}** documentation. If the user asks something completely unrelated (recipes, weather, generic algorithms with no ${productName} connection), politely redirect them. However, questions about integrating ${productName} with other technologies (React, Node.js, etc.) ARE in scope.
 
-### Step 1: Classify the query
-On your first turn, you MUST call **classify_query** first. No exceptions.
-If you have already classified the query in a previous message, skip to Step 3.
+---
 
-### Step 2: Decompose if complex
-If classify_query returns "complex":
-  - You MUST call **decompose_query** before any web search.
-If classify_query returns "simple":
-  - Skip decompose_query and proceed to Step 3.
+## DECISION RULE
 
-### Step 3: Search the documentation
-You MUST call **web_search_docs** for:
-  - The original query (if simple), OR
-  - Each sub-query returned by decompose_query (if complex).
-You may call web_search_docs multiple times if the initial results are insufficient.
-
-### Step 4: Produce a final answer
-You may ONLY produce a final text answer when:
-  - You have already called **web_search_docs** at least once, AND
-  - You believe the retrieved documentation is sufficient.
-
-⛔ If you have NOT called web_search_docs yet, you are NOT allowed to answer.
-⛔ Skipping classify_query on your first turn and jumping straight to web_search_docs is FORBIDDEN.
-⛔ Producing a text answer without having searched first is FORBIDDEN.
-⛔ Do NOT repeat the same web_search_docs query. Limit yourself to at most 3 web searches total.
+${
+  contextInsufficient
+    ? `⚠️ **The LLM context grader has already determined the indexed documentation is INSUFFICIENT to answer this question.**\nYou MUST call **web_search_docs** before answering. Do not answer directly from the retrieved context alone — it was graded as incomplete.`
+    : `- If the retrieved context **fully answers** the question → write your answer directly, do NOT call any tools.\n- If the context is **missing key details** or is insufficient → call **web_search_docs** to fetch more information, then answer.`
+}
 
 ---
 
 ## AVAILABLE TOOLS
 
-1. **classify_query** — Classify if query is simple (single topic) or complex (multiple topics/comparisons). MUST be called first.
-2. **decompose_query** — Break a complex query into 2–3 simpler sub-queries. Each sub-query must represent a distinct documentation concept.
-3. **web_search_docs** — Search and scrape the product's official documentation site. This is NOT a general Google search. You cannot change the site being searched.
+1. **web_search_docs** — Search and scrape pages from the official documentation site (${docsSiteUrl}).
 
 ---
 
-## DOCUMENTATION SCOPE (CRITICAL)
+## RULES
 
-You must base your answers **only** on the official documentation for
-**${productName}**.
-
-- Use information retrieved from the documentation site:
-  ${docsSiteUrl}
-- Do NOT rely on general programming knowledge
-- Do NOT speculate or infer beyond what the documentation states
-- Do NOT answer questions unrelated to ${productName}
-
-If the documentation does not contain the requested information:
-- Clearly state that it is not covered in the documentation
-- Suggest checking the official documentation site for updates
+- Call **web_search_docs once** with a specific, targeted query.
+- Only call it a **second time** if the first result was completely empty or clearly off-topic.
+- Do NOT call web_search_docs more than **2 times total**.
+- Base your answer ONLY on the retrieved context or web search results — do not invent APIs.
+- Cite source URLs inline (e.g. "According to the [docs](url)...").
+- After your final tool call, write your answer as plain text — do NOT call more tools.
+- If the documentation genuinely does not contain the answer, say so clearly.
 
 ---
 
-## CODE POLICY
-
-- ✅ Show code snippets ONLY if they appear verbatim in the documentation
-- ✅ Show configuration examples if they are documented
-- ❌ Do NOT generate new implementation code
-- ❌ Do NOT invent APIs, parameters, or examples
-
-If the documentation describes behavior but does not include code:
-- Summarize the documented behavior
-- Reference the relevant documentation section
-
----
-
-## STRICT RULES
-
-1. ❌ Do NOT call search_docs or rerank_results (handled by the system)
-2. ❌ Do NOT decide confidence thresholds
-3. ❌ Do NOT answer off-topic questions
-4. ❌ Do NOT generate undocumented code
-5. ❌ Do NOT produce a final answer before calling web_search_docs at least once
-6. ❌ Do NOT skip classify_query — it MUST be your first tool call
-7. ✅ Stay strictly within the product's documentation
-8. ✅ After your web searches complete, write your final answer directly as a text response (do NOT call any more tools). Cite sources and be precise.
-
----
-
-You are assisting with documentation for:
 Product: **${productName}**
-Documentation site: ${docsSiteUrl}
-`;
+Documentation site: ${docsSiteUrl}`;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, memo } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Message,
@@ -9,31 +9,16 @@ import {
   MessageActions,
   MessageAction,
 } from "@/components/ai-elements/message";
-import {
-  ChainOfThought,
-  ChainOfThoughtHeader,
-  ChainOfThoughtStep,
-  ChainOfThoughtContent,
-} from "@/components/ai-elements/chain-of-thought";
 import { Markdown } from "./Markdown";
 import { cn } from "@/lib/utils";
 import {
   ChevronDown,
   CopyIcon,
   RefreshCcwIcon,
-  Search,
-  Layers,
   Brain,
-  Globe,
   Loader2,
   Check,
   Sparkles,
-  ShieldCheck,
-  Zap,
-  Filter,
-  FileSearch,
-  MessageSquare,
-  type LucideIcon,
 } from "lucide-react";
 import { Sources } from "./Sources";
 
@@ -47,247 +32,329 @@ interface ToolInvocation {
   result?: unknown;
 }
 
-// ─── Chain of Thought: Tool Step Config ───
+// ─── Chain of Thought: Gemini-style prose thinking block ───
 
-interface ToolStepConfig {
-  label: string;
-  activeLabel: string;
-  icon: LucideIcon;
+interface ThoughtLine {
+  text: string;
+  details?: string[];
 }
 
-const TOOL_CONFIGS: Record<string, ToolStepConfig> = {
-  // ── RAG Pipeline ──
-  search_docs: {
-    label: "Searched documentation",
-    activeLabel: "Searching documentation...",
-    icon: Search,
-  },
-  multi_search: {
-    label: "Ran parallel searches",
-    activeLabel: "Running parallel searches...",
-    icon: Layers,
-  },
-  decompose_query: {
-    label: "Analyzed query complexity",
-    activeLabel: "Breaking down your question...",
-    icon: Brain,
-  },
-  classify_query: {
-    label: "Classified query type",
-    activeLabel: "Understanding your question...",
-    icon: FileSearch,
-  },
-  // ── Deep Research (Agent Graph) ──
-  deep_vector_search: {
-    label: "Deep vector search completed",
-    activeLabel: "Deep searching documentation...",
-    icon: Search,
-  },
-  context_grader: {
-    label: "Context quality verified",
-    activeLabel: "Evaluating context quality...",
-    icon: ShieldCheck,
-  },
-  deep_rerank: {
-    label: "Results reranked by relevance",
-    activeLabel: "Reranking results...",
-    icon: Filter,
-  },
-  deep_generate: {
-    label: "Answer generated",
-    activeLabel: "Synthesizing answer...",
-    icon: Sparkles,
-  },
-  fallback_generate: {
-    label: "Best-effort answer generated",
-    activeLabel: "Generating answer from available context...",
-    icon: MessageSquare,
-  },
-  web_search_docs: {
-    label: "Searched official documentation",
-    activeLabel: "Searching live documentation...",
-    icon: Globe,
-  },
-  deep_research: {
-    label: "Deep research completed",
-    activeLabel: "Performing deep research...",
-    icon: Zap,
-  },
-};
-
-function getToolConfig(toolName: string): ToolStepConfig {
-  return (
-    TOOL_CONFIGS[toolName] || {
-      label: toolName.replace(/_/g, " "),
-      activeLabel: `Running ${toolName.replace(/_/g, " ")}...`,
-      icon: Zap,
-    }
-  );
-}
-
-// ─── Chain of Thought: Pipeline Steps Component ───
-
-function formatToolResult(
+function buildThoughtLine(
   toolName: string,
   result: Record<string, unknown>,
-): React.ReactNode {
-  if (toolName === "search_docs" || toolName === "deep_vector_search") {
-    const urls = Array.isArray(result.urls) ? (result.urls as string[]) : [];
-    const text =
-      toolName === "search_docs"
-        ? `${result.chunks ?? 0} chunks · ${result.confidence ?? "unknown"} confidence`
-        : `${result.chunks ?? 0} chunks · top score ${result.topScore ?? "—"}`;
+): ThoughtLine {
+  switch (toolName) {
+    case "deep_vector_search":
+    case "search_docs": {
+      const chunks = result.chunks ?? 0;
+      const score = result.topScore ?? null;
+      const confidence = result.confidence ?? null;
+      const kgBoosted = typeof result.kgBoosted === "number" ? result.kgBoosted : 0;
+      const wasReranked = result.wasReranked ?? false;
+      const urls = Array.isArray(result.urls) ? result.urls as string[] : [];
 
-    if (urls.length > 0) {
-      return (
-        <div className="flex flex-col gap-1.5 mt-1 pb-1">
-          <div className="flex flex-wrap gap-2 text-sm text-neutral-500 mb-1">
-            <span className="text-muted-foreground">{text}</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {urls.map((u, i) => {
-              try {
-                // Remove http/https, but intentionally keep "www." per the screenshot
-                const displayUrl = u
-                  .replace(/^https?:\/\//, "")
-                  .replace(/\/$/, "")
-                  .split("/")[0];
-                return (
-                  <a
-                    key={i}
-                    href={u}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center px-3 py-1.5 rounded-full bg-[#1a1a1a] hover:bg-[#222222] text-sm text-neutral-300 transition-colors pointer-events-auto"
-                  >
-                    <span className="truncate max-w-[200px]">{displayUrl}</span>
-                  </a>
-                );
-              } catch {
-                return null;
-              }
-            })}
-          </div>
-        </div>
-      );
+      const scoreStr = score && typeof score === "number" ? ` (score: ${score.toFixed(2)})` : "";
+      const confStr = confidence ? ` — ${confidence} confidence` : "";
+      const text = `Found ${chunks} relevant chunks${scoreStr}${confStr}`;
+
+      const details: string[] = [];
+      if (kgBoosted > 0) details.push(`Knowledge graph boosted ${kgBoosted} chunks`);
+      if (wasReranked) details.push("Results were reranked by relevance");
+      if (urls.length > 0) {
+        details.push(`Sources found:`);
+        urls.forEach((u: string) => {
+          try {
+            const parsed = new URL(u);
+            const path = parsed.pathname.replace(/\/$/, "");
+            const label = path.length > 1 ? decodeURIComponent(path) : parsed.hostname;
+            details.push(`  → ${label}`);
+          } catch {
+            details.push(`  → ${u}`);
+          }
+        });
+      }
+      return { text, details: details.length > 0 ? details : undefined };
     }
-    return <span className="text-muted-foreground">{text}</span>;
+    case "context_grader": {
+      const sufficient = result.isContextSufficient;
+      return {
+        text: sufficient
+          ? "Context is sufficient — generating answer directly."
+          : "Context insufficient — need deeper research.",
+        details: sufficient
+          ? ["Skipping web search — indexed docs cover this question"]
+          : ["Will escalate to web search for better coverage"],
+      };
+    }
+    case "deep_rerank": {
+      const n = Array.isArray(result.reranked) ? result.reranked.length : (result.reranked ?? 0);
+      const conf = result.confidence ?? "unknown";
+      const topScore = result.topScore;
+      if (result.skipped) {
+        return {
+          text: `Skipped reranking — using top ${n} results directly.`,
+          details: ["Vector scores were already strong enough"],
+        };
+      }
+      const details: string[] = [`Kept top ${n} chunks (${conf} confidence)`];
+      if (topScore && typeof topScore === "number") {
+        details.push(`Best match score: ${topScore.toFixed(2)}`);
+      }
+      return { text: `Reranked results by relevance.`, details };
+    }
+    case "web_search_docs": {
+      const pages = Array.isArray(result.scrapedPages)
+        ? (result.scrapedPages as Array<{ url?: string; title?: string }>)
+        : [];
+      const toolCalls = result.toolCalls;
+      if (result.error) return { text: `Web search failed: ${result.error}` };
+      if (pages.length > 0) {
+        const details = [`Scraped ${pages.length} pages:`];
+        pages.forEach((p) => {
+          const label = p.title || p.url || "unknown";
+          details.push(`  → ${label}`);
+        });
+        return { text: `Searched live docs and scraped ${pages.length} pages.`, details };
+      }
+      if (toolCalls && typeof toolCalls === "number") {
+        return { text: `Web agent made ${toolCalls} tool call${toolCalls !== 1 ? "s" : ""}.` };
+      }
+      return { text: "Searching the live documentation site..." };
+    }
+    case "deep_generate":
+    case "fallback_generate": {
+      const sources = result.sources ?? 0;
+      const length = result.length;
+      if (result.error) return { text: `Answer generation failed: ${result.error}` };
+      const details: string[] = [];
+      if (typeof sources === "number" && sources > 0) details.push(`Referenced ${sources} source${sources !== 1 ? "s" : ""}`);
+      if (typeof length === "number") details.push(`Generated ${length} characters`);
+      return {
+        text: toolName === "fallback_generate"
+          ? "Generated best-effort answer from available context."
+          : "Answer synthesized from documentation.",
+        details: details.length > 0 ? details : undefined,
+      };
+    }
+    case "decompose_query": {
+      const queries = result.subQueries as Array<{ query: string; intent?: string }> | undefined;
+      if (queries && queries.length > 0) {
+        return {
+          text: `Broke question into ${queries.length} sub-queries.`,
+          details: queries.map((q) => `  → "${q.query}"${q.intent ? ` (${q.intent})` : ""}`),
+        };
+      }
+      return { text: "Analyzed query complexity." };
+    }
+    case "multi_search": {
+      return {
+        text: `Parallel search complete — ${result.totalChunks ?? 0} chunks found.`,
+        details: result.confidence ? [`Confidence: ${result.confidence}`] : undefined,
+      };
+    }
+    case "deep_research": {
+      const n = typeof result.sources === "number" ? result.sources : 0;
+      const urls = Array.isArray(result.urls) ? result.urls as string[] : [];
+      const pages = Array.isArray(result.scrapedPages)
+        ? (result.scrapedPages as Array<{ url?: string; title?: string }>)
+        : [];
+      if (result.status === "Escalation unavailable — using RAG answer") {
+        return { text: "Deep research unavailable — using indexed documentation." };
+      }
+      const details: string[] = [];
+      if (pages.length > 0) {
+        details.push(`Researched ${pages.length} pages:`);
+        pages.forEach((p) => {
+          details.push(`  → ${p.title || p.url || "unknown"}`);
+        });
+      } else if (urls.length > 0) {
+        details.push(`Found ${n} source${n !== 1 ? "s" : ""}:`);
+        urls.forEach((u: string) => {
+          try {
+            const path = new URL(u).pathname.replace(/\/$/, "");
+            details.push(`  → ${decodeURIComponent(path) || u}`);
+          } catch {
+            details.push(`  → ${u}`);
+          }
+        });
+      }
+      return {
+        text: n > 0 ? `Deep research complete — found ${n} source${n !== 1 ? "s" : ""}.` : "Deep research complete.",
+        details: details.length > 0 ? details : undefined,
+      };
+    }
+    default:
+      return {
+        text: result.error
+          ? `${toolName.replace(/_/g, " ")} failed: ${result.error}`
+          : `Completed ${toolName.replace(/_/g, " ")}.`,
+      };
   }
-  if (toolName === "multi_search") {
-    return (
-      <span className="text-muted-foreground">{`${result.totalChunks ?? 0} chunks across queries · ${result.confidence ?? "unknown"} confidence`}</span>
-    );
-  }
-  if (toolName === "decompose_query" && result.subQueries) {
-    const queries = result.subQueries as Array<{ query: string }>;
-    return (
-      <span className="text-muted-foreground">
-        {queries.map((q) => `"${q.query}"`).join(", ")}
-      </span>
-    );
-  }
-  if (toolName === "deep_research") {
-    return (
-      <span className="text-muted-foreground">
-        {String(result.status || result.reason || "Agent research complete")}
-      </span>
-    );
-  }
-  if (toolName === "context_grader") {
-    const sufficient = result.isContextSufficient;
-    return (
-      <span className="text-muted-foreground">
-        {sufficient ? "Context is sufficient" : "Needs deeper research"}
-      </span>
-    );
-  }
-  if (toolName === "deep_rerank") {
-    return (
-      <span className="text-muted-foreground">{`${result.reranked ?? 0} results · ${result.confidence ?? "unknown"} confidence`}</span>
-    );
-  }
-  if (toolName === "deep_generate") {
-    return (
-      <span className="text-muted-foreground">{`${result.length ?? 0} chars · ${result.sources ?? 0} sources`}</span>
-    );
-  }
-  if (toolName === "web_search_docs") {
-    return (
-      <span className="text-muted-foreground">{`${result.toolCalls ?? 0} tool calls executed`}</span>
-    );
-  }
-  if (result.error) {
-    return <span className="text-red-400">{`Error: ${result.error}`}</span>;
-  }
-  return null;
 }
 
-function PipelineSteps({ invocations }: { invocations: ToolInvocation[] }) {
-  // Defensive render-level dedup by toolCallId (belt-and-suspenders)
+function buildActiveThoughtLine(toolName: string): string {
+  switch (toolName) {
+    case "deep_vector_search":
+    case "search_docs":
+      return "Searching through the indexed documentation...";
+    case "context_grader":
+      return "Evaluating whether the retrieved context is sufficient...";
+    case "deep_rerank":
+      return "Reranking results by relevance to your question...";
+    case "web_search_docs":
+      return "Searching the live documentation site for additional context...";
+    case "deep_generate":
+      return "Synthesizing the final answer...";
+    case "fallback_generate":
+      return "Generating best-effort answer from available context...";
+    case "decompose_query":
+      return "Breaking down your question into focused sub-queries...";
+    case "multi_search":
+      return "Running parallel searches across sub-queries...";
+    default:
+      return `Running ${toolName.replace(/_/g, " ")}...`;
+  }
+}
+
+function PipelineSteps({
+  invocations,
+  hasAnswer,
+}: {
+  invocations: ToolInvocation[];
+  hasAnswer: boolean;
+}) {
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null);
+
   const deduped = invocations.filter(
     (inv, idx, arr) =>
       arr.findIndex((i) => i.toolCallId === inv.toolCallId) === idx,
   );
 
+  // Reset manual override only when this becomes a fresh invocation set
+  // (first invocation arrives after being empty). Do NOT reset on every
+  // tool result — that causes the panel to flash on each completed step.
+  const hadInvocations = useRef(false);
+  useEffect(() => {
+    if (deduped.length > 0 && !hadInvocations.current) {
+      hadInvocations.current = true;
+      setManualOpen(null);
+    }
+    if (deduped.length === 0) {
+      hadInvocations.current = false;
+    }
+  }, [deduped.length]);
+
   if (deduped.length === 0) return null;
 
   const isComplete = deduped.every((inv) => inv.state === "result");
+  // "Deep Research" label only when the graph agent actually ran (not the fast path).
+  // context_grader fires on the fast path too — exclude it from this check.
   const isDeepResearch = deduped.some((inv) =>
-    [
-      "deep_vector_search",
-      "deep_rerank",
-      "deep_generate",
-      "context_grader",
-      "web_search_docs",
-      "fallback_generate",
-    ].includes(inv.toolName),
+    ["deep_vector_search", "deep_rerank", "deep_generate", "web_search_docs", "fallback_generate", "deep_research"].includes(inv.toolName),
   );
 
-  const headerTitle = isComplete
-    ? isDeepResearch
-      ? "Deep Research Complete"
-      : `${deduped.length} step${deduped.length > 1 ? "s" : ""} completed`
-    : isDeepResearch
-      ? "Deep Research in progress..."
-      : "Thinking...";
+  // Auto-collapse when answer arrives, but respect manual toggle
+  const isOpen = manualOpen !== null ? manualOpen : !hasAnswer;
+
+  const activeStep = deduped.find(
+    (inv) => inv.state === "call" || inv.state === "partial-call",
+  );
+
+  const elapsedLabel = isComplete
+    ? isDeepResearch ? "Deep Research" : "Thinking"
+    : isDeepResearch ? "Researching" : "Thinking";
+
+  const headerLabel = isComplete
+    ? `${elapsedLabel} complete`
+    : activeStep
+      ? buildActiveThoughtLine(activeStep.toolName)
+      : `${elapsedLabel}...`;
+
+  // Build prose lines from completed steps.
+  // Parse string results (tools may return JSON strings) before filtering.
+  const proseLines = deduped
+    .filter((inv) => inv.state === "result" && inv.result != null)
+    .map((inv) => {
+      let parsed = inv.result;
+      if (typeof parsed === "string") {
+        try { parsed = JSON.parse(parsed); } catch { return null; }
+      }
+      if (typeof parsed !== "object" || parsed === null) return null;
+      return buildThoughtLine(inv.toolName, parsed as Record<string, unknown>);
+    })
+    .filter((line): line is ThoughtLine => line !== null);
 
   return (
     <div className="mb-4">
-      <ChainOfThought defaultOpen={true}>
-        <ChainOfThoughtHeader>{headerTitle}</ChainOfThoughtHeader>
-        <ChainOfThoughtContent>
-          {deduped.map((inv) => {
-            const config = getToolConfig(inv.toolName);
-            const isStepComplete = inv.state === "result";
-            const isActive =
-              inv.state === "call" || inv.state === "partial-call";
+      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+        {/* Header — always visible, clickable */}
+        <button
+          onClick={() => setManualOpen(!isOpen)}
+          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-white/[0.02] transition-colors"
+        >
+          <div className="flex items-center justify-center w-5 h-5 rounded-full bg-purple-500/15 shrink-0">
+            {isComplete ? (
+              <Brain className="w-3 h-3 text-purple-400" />
+            ) : (
+              <Loader2 className="w-3 h-3 text-purple-400 animate-spin" />
+            )}
+          </div>
+          <span className="flex-1 text-[12px] font-medium text-neutral-400 truncate">
+            {headerLabel}
+          </span>
+          <ChevronDown
+            className={cn(
+              "w-3.5 h-3.5 text-neutral-500 transition-transform shrink-0",
+              isOpen ? "rotate-180" : "rotate-0",
+            )}
+          />
+        </button>
 
-            const resultText =
-              isStepComplete &&
-              inv.result != null &&
-              typeof inv.result === "object"
-                ? formatToolResult(
-                    inv.toolName,
-                    inv.result as Record<string, unknown>,
-                  )
-                : undefined;
-
-            let status: "complete" | "active" | "pending" = "pending";
-            if (isStepComplete) status = "complete";
-            else if (isActive) status = "active";
-
-            return (
-              <ChainOfThoughtStep
-                key={inv.toolCallId}
-                icon={config.icon}
-                label={isStepComplete ? config.label : config.activeLabel}
-                description={resultText}
-                status={status}
-              />
-            );
-          })}
-        </ChainOfThoughtContent>
-      </ChainOfThought>
+        {/* Collapsible prose content — grid-rows transition for smooth height animation */}
+        <div
+          className={cn(
+            "grid transition-[grid-template-rows] duration-300 ease-in-out",
+            isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+          )}
+        >
+          <div className="overflow-hidden">
+            <div className="px-4 pb-3 pt-0.5 border-t border-white/[0.04]">
+              <div className="space-y-2.5">
+                {proseLines.map((line, idx) => (
+                  <div key={`${line.text.slice(0, 40)}-${idx}`}>
+                    <p className="text-[12.5px] leading-relaxed text-neutral-400 font-medium">
+                      {line.text}
+                    </p>
+                    {line.details && line.details.length > 0 && (
+                      <div className="mt-1 ml-2 space-y-0.5">
+                        {line.details.map((detail, i) => (
+                          <p
+                            key={i}
+                            className="text-[11.5px] leading-relaxed text-neutral-500"
+                          >
+                            {detail}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {/* Active step — shown while tool is running */}
+                {!isComplete && activeStep && (
+                  <p className="text-[12.5px] leading-relaxed text-neutral-400 italic animate-pulse">
+                    {buildActiveThoughtLine(activeStep.toolName)}
+                  </p>
+                )}
+                {proseLines.length === 0 && !activeStep && (
+                  <p className="text-[12.5px] text-neutral-600 italic">
+                    Initializing...
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -399,17 +466,26 @@ function parseMessageContent(raw: string): {
   const textWithoutCode = raw.replace(/```[\s\S]*?```/g, "");
 
   // 2. Extract ALL URLs from the clean text for the Sources tray.
-  // This regex stops at spaces, brackets, or quotes.
-  const urlRegex = /https?:\/\/[^\s)\]"']+/g;
+  // Excludes <> to avoid capturing angle-bracket notation like <https://url> or trailing >
+  const urlRegex = /https?:\/\/[^\s)\]"'<>`]+/g;
 
   // 3. Strip trailing punctuation that might have snuck in (e.g. at the end of a sentence).
   const embeddedUrls = Array.from(
     textWithoutCode.matchAll(urlRegex),
     (m) => m[0],
   )
-    .map((url) => url.replace(/[,.;:!)\]}]+$/, ""))
-    // Also ignore obviously broken/template URLs from AI hallucination
-    .filter((url) => !url.includes("{") && !url.includes("}"));
+    .map((url) => url.replace(/[,.;:!)\]}`]+$/, ""))
+    // Validate: must have a real hostname (at least one dot), no template placeholders
+    .filter((url) => {
+      if (url.includes("{") || url.includes("}")) return false;
+      if (url.includes("`")) return false;
+      try {
+        const { hostname } = new URL(url);
+        return hostname.includes(".");
+      } catch {
+        return false;
+      }
+    });
 
   // 4. Handle explicit "Sources:" block in the original text (we want to hide this block)
   const sourcesPattern = /\n?\*{0,2}sources:?\*{0,2}\s*\n([\s\S]*?)(?=\n\n|$)/i;
@@ -484,8 +560,13 @@ function getToolInvocations(message: {
       continue;
     }
 
-    // Legacy custom stream events (pre-v6 backward compat)
-    if (p.type === "tool-input-start" && p.toolCallId && p.toolName) {
+    // Custom stream events written by route.ts via createUIMessageStream writer
+    // tool-input-available → tool in "call" state (active/in-progress)
+    if (
+      (p.type === "tool-input-available" || p.type === "tool-input-start") &&
+      p.toolCallId &&
+      p.toolName
+    ) {
       if (!seen.has(p.toolCallId)) {
         const inv: ToolInvocation = {
           toolCallId: p.toolCallId,
@@ -503,6 +584,17 @@ function getToolInvocations(message: {
       if (existing) {
         existing.state = "result";
         existing.result = p.output;
+      } else {
+        // Result arrived before start (e.g. parts rehydrated out of order)
+        const inv: ToolInvocation = {
+          toolCallId: p.toolCallId,
+          toolName: (p as { toolName?: string }).toolName || "unknown",
+          args: {},
+          state: "result",
+          result: p.output,
+        };
+        seen.set(p.toolCallId, inv);
+        invocations.push(inv);
       }
     }
   }
@@ -645,7 +737,7 @@ const MessageItem = memo(
         ) : (
           <>
             {toolInvocations.length > 0 && (
-              <PipelineSteps invocations={toolInvocations} />
+              <PipelineSteps invocations={toolInvocations} hasAnswer={!!text} />
             )}
 
             <MessageContent>
@@ -705,23 +797,41 @@ const MessageItem = memo(
     );
   },
   (prev, next) => {
-    // Custom comparator: skip re-render if nothing meaningful changed
+    // Cheap identity checks first
     if (prev.message.id !== next.message.id) return false;
     if (prev.isLastMessage !== next.isLastMessage) return false;
     if (prev.status !== next.status) return false;
     if (prev.error !== next.error) return false;
     if (prev.precedingUserPrompt !== next.precedingUserPrompt) return false;
-    if (prev.isLastMessage && next.isLastMessage) {
-      const prevText = getMessageText(prev.message);
-      const nextText = getMessageText(next.message);
-      if (prevText !== nextText) return false;
-      const prevInvs = getToolInvocations(prev.message);
-      const nextInvs = getToolInvocations(next.message);
-      if (prevInvs.length !== nextInvs.length) return false;
-      for (let i = 0; i < prevInvs.length; i++) {
-        if (prevInvs[i].state !== nextInvs[i].state) return false;
-      }
+
+    // Only the streaming message needs deep comparison — completed messages never change
+    if (!prev.isLastMessage) return true;
+
+    // Compare part count (cheapest proxy for "did anything change")
+    const prevParts = prev.message.parts ?? [];
+    const nextParts = next.message.parts ?? [];
+    if (prevParts.length !== nextParts.length) return false;
+
+    // Compare text content directly from parts (avoids calling getMessageText twice)
+    const prevText = prevParts.filter((p) => p.type === "text").map((p) => p.text ?? "").join("");
+    const nextText = nextParts.filter((p) => p.type === "text").map((p) => p.text ?? "").join("");
+    if (prevText !== nextText) return false;
+
+    // Compare tool invocation states (type + state only — no full parse)
+    // useChat transforms tool-input-available/tool-output-available → "dynamic-tool" parts
+    const prevToolParts = prevParts.filter((p) =>
+      p.type === "tool-invocation" || p.type === "dynamic-tool" ||
+      p.type === "tool-output-available" || p.type === "tool-input-available",
+    );
+    const nextToolParts = nextParts.filter((p) =>
+      p.type === "tool-invocation" || p.type === "dynamic-tool" ||
+      p.type === "tool-output-available" || p.type === "tool-input-available",
+    );
+    if (prevToolParts.length !== nextToolParts.length) return false;
+    for (let i = 0; i < prevToolParts.length; i++) {
+      if (prevToolParts[i].state !== nextToolParts[i].state) return false;
     }
+
     return true;
   },
 );
@@ -758,7 +868,7 @@ export function ChatMessages({
   const virtualizer = useVirtualizer({
     count: itemCount,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 120, // average message height estimate
+    estimateSize: () => 200, // higher estimate reduces layout jumps for CoT-heavy messages
     overscan: 5, // render 5 extra items above/below viewport
   });
 
@@ -768,15 +878,33 @@ export function ChatMessages({
     virtualizer.scrollToIndex(itemCount - 1, { align: "end" });
   }, [messages.length, status, itemCount, virtualizer]);
 
+  // Track tool invocation count so scroll triggers when CoT panels appear/update
+  const lastToolInvocationCount = lastToolInvocations.length;
+  const lastToolCompleteCount = lastToolInvocations.filter(
+    (inv) => inv.state === "result",
+  ).length;
+
   // Throttled auto-scroll during streaming (once per frame)
+  // Triggers on: text length change, new tool invocations, tool completions
   useEffect(() => {
-    if (status !== "streaming" || !isAutoScrolling.current) return;
+    if (
+      (status !== "streaming" && status !== "submitted") ||
+      !isAutoScrolling.current
+    )
+      return;
     cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(() => {
       virtualizer.scrollToIndex(itemCount - 1, { align: "end" });
     });
     return () => cancelAnimationFrame(rafRef.current);
-  }, [lastMessageText.length, status, itemCount, virtualizer]);
+  }, [
+    lastMessageText.length,
+    lastToolInvocationCount,
+    lastToolCompleteCount,
+    status,
+    itemCount,
+    virtualizer,
+  ]);
 
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return;
@@ -785,6 +913,24 @@ export function ChatMessages({
     setShowScrollButton(!isNearBottom);
     isAutoScrolling.current = isNearBottom;
   }, []);
+
+  // Pre-compute preceding user prompt for each assistant message once,
+  // rather than running a loop inside the virtualizer render per frame.
+  // Must be called BEFORE the early return to keep hook order stable.
+  const precedingUserPrompts = useMemo(() => {
+    const map = new Map<string, string>();
+    for (let i = 0; i < messages.length; i++) {
+      if (messages[i].role === "assistant") {
+        for (let j = i - 1; j >= 0; j--) {
+          if (messages[j].role === "user") {
+            map.set(messages[i].id, getMessageText(messages[j]));
+            break;
+          }
+        }
+      }
+    }
+    return map;
+  }, [messages]);
 
   if (messages.length === 0) {
     return (
@@ -843,17 +989,7 @@ export function ChatMessages({
                     status={status}
                     error={error}
                     onRetry={onRetry}
-                    precedingUserPrompt={(() => {
-                      // For assistant messages, find the nearest preceding user message
-                      if (messages[virtualRow.index]?.role !== "assistant")
-                        return undefined;
-                      for (let i = virtualRow.index - 1; i >= 0; i--) {
-                        if (messages[i]?.role === "user") {
-                          return getMessageText(messages[i]);
-                        }
-                      }
-                      return undefined;
-                    })()}
+                    precedingUserPrompt={precedingUserPrompts.get(messages[virtualRow.index]?.id)}
                   />
                 )}
               </div>

@@ -2,7 +2,10 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db/prisma";
 import { NextResponse } from "next/server";
 import { inngest } from "@/lib/inngest/client";
-import { updateDocSourceStatus } from "@/lib/db/docSource";
+import {
+  updateDocSourceStatus,
+  updateDocSourceClassification,
+} from "@/lib/db/docSource";
 import { checkReindexLimit, incrementReindexCount } from "@/lib/reindex-limit";
 
 // POST /api/workspaces/[id]/index - Start indexing or re-indexing a workspace's DocSource
@@ -71,6 +74,15 @@ export async function POST(
         { status: 429 },
       );
     }
+  }
+
+  // Run classification to detect change strategy (non-blocking on error)
+  try {
+    const { classifyDocSource } = await import("@/lib/ai/indexer/classify");
+    const classification = await classifyDocSource(docSource.rootUrl);
+    await updateDocSourceClassification(docSource.id, classification);
+  } catch (classifyError) {
+    console.warn("[classify] Failed to classify DocSource:", classifyError);
   }
 
   try {
@@ -168,6 +180,11 @@ export async function GET(
 
   if (!workspace) {
     return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+  }
+
+  // Ownership check — authenticated users could previously read any workspace's status (#9 fix)
+  if (workspace.userId !== userId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   // Also get the user's re-index limit status

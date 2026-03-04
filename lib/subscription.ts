@@ -4,7 +4,31 @@ import { FREE_PLAN, PRO_PLAN } from "@/lib/plan-config";
 // Re-export for convenience
 export { FREE_PLAN, PRO_PLAN };
 
-export async function getUserSubscription(userId: string) {
+// Lazy Redis import so the module works even if Redis is unconfigured
+async function getRedis() {
+  try {
+    const Redis = (await import("ioredis")).default;
+    const host = process.env.REDIS_HOST;
+    if (!host) return null;
+    return new Redis({
+      host,
+      port: parseInt(process.env.REDIS_PORT || "6379", 10),
+      password: process.env.REDIS_PASSWORD,
+      lazyConnect: true,
+      connectTimeout: 1000,
+    });
+  } catch {
+    return null;
+  }
+}
+
+const SUB_TTL = 300; // 5 minutes
+
+function subKey(userId: string) {
+  return `sub:${userId}`;
+}
+
+async function fetchUserSubscription(userId: string) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
@@ -27,6 +51,48 @@ export async function getUserSubscription(userId: string) {
     plan: isActive ? PRO_PLAN : FREE_PLAN,
     ...user,
   };
+}
+
+/**
+ * Cached subscription lookup — 5 minute TTL.
+ * Redis (shared across all instances) → DB fallback.
+ * Instant invalidation via invalidateSubscriptionCache() on Polar webhook.
+ */
+export async function getUserSubscription(userId: string) {
+  const redis = await getRedis();
+
+  if (redis) {
+    try {
+      const cached = await redis.get(subKey(userId));
+      if (cached) return JSON.parse(cached);
+    } catch {
+      // Redis unavailable — fall through to DB
+    }
+  }
+
+  const result = await fetchUserSubscription(userId);
+
+  if (redis && result) {
+    try {
+      await redis.set(subKey(userId), JSON.stringify(result), "EX", SUB_TTL);
+    } catch {
+      // non-fatal
+    }
+  }
+
+  return result;
+}
+
+/** Call this from the Polar webhook handler after any subscription change. */
+export async function invalidateSubscriptionCache(userId: string) {
+  const redis = await getRedis();
+  if (redis) {
+    try {
+      await redis.del(subKey(userId));
+    } catch {
+      // non-fatal
+    }
+  }
 }
 
 export async function checkDocLimit(userId: string) {

@@ -8,7 +8,7 @@ export function Footer() {
     <footer className="bg-black pt-32 pb-12 border-t border-white/10">
       <div className="max-w-[1400px] mx-auto px-6">
         <div className="flex flex-col md:flex-row justify-between items-end mb-24">
-          <div className="text-[12vw] md:text-[10vw] leading-[0.8] font-bold tracking-tighter text-white opacity-90 select-none hover:text-transparent hover:bg-clip-text hover:bg-gradient-to-t hover:from-neutral-800 hover:to-white transition-all duration-700 cursor-default">
+          <div className="text-[12vw] md:text-[10vw] leading-[0.8] font-bold tracking-tighter select-none text-transparent bg-clip-text bg-gradient-to-t from-neutral-800 to-white animate-text-hover cursor-default">
             CHATDOC
           </div>
           <div className="flex flex-col gap-4 text-right mb-4 mt-8 md:mt-0">

@@ -93,11 +93,30 @@ model DocSource {
   // Re-indexing
   lastAutoReindexAt DateTime?          // Last automatic (cron) re-index
   failedUrls        String[]           // URLs that failed during scraping
-  
+
+  // Change detection classification
+  changeStrategy    String?            // "rss" | "sitemap" | "blind"
+  rssUrl            String?
+  sitemapUrl        String?
+
+  // Adaptive polling
+  pollIntervalHours Int       @default(24)
+  lastPollAt        DateTime?
+  pollEtag          String?   // ETag from last RSS/sitemap response (for 304 checks)
+  pollContentHash   String?   // SHA-256 of last fetched page body (blind strategy)
+
+  // Banner data (set after re-index completes)
+  lastChangeAt      DateTime?
+  lastChangeType    String?            // "minor" | "major"
+  changeDescription String?            // "12 pages updated"
+
+  // Resumable indexing checkpoint
+  indexCheckpoint Json?              // { pagesS3Key, pageCount, chunksS3Key, chunkCount, completedBatches, startedAt }
+
   // Timestamps
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-  
+
   // Relations
   Workspace     Workspace[]
   Chunk         Chunk[]
@@ -154,12 +173,14 @@ model Workspace {
   docSourceId   String
   DocSource     DocSource  @relation(fields: [docSourceId], references: [id])
   
+  lastSeenChangeAt  DateTime?  // user dismissed banner at this time
+
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
-  
+
   User          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   Chat          Chat[]
-  
+
   // One workspace per user per doc source
   @@unique([userId, docSourceId])
   @@index([userId])

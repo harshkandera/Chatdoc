@@ -29,11 +29,13 @@ export type AggregateDocSource = {
 export type DocSourceAvgAggregateOutputType = {
   documentCount: number | null
   chunkCount: number | null
+  pollIntervalHours: number | null
 }
 
 export type DocSourceSumAggregateOutputType = {
   documentCount: number | null
   chunkCount: number | null
+  pollIntervalHours: number | null
 }
 
 export type DocSourceMinAggregateOutputType = {
@@ -51,6 +53,16 @@ export type DocSourceMinAggregateOutputType = {
   documentCount: number | null
   chunkCount: number | null
   lastAutoReindexAt: Date | null
+  changeStrategy: string | null
+  rssUrl: string | null
+  sitemapUrl: string | null
+  pollIntervalHours: number | null
+  lastPollAt: Date | null
+  pollEtag: string | null
+  pollContentHash: string | null
+  lastChangeAt: Date | null
+  lastChangeType: string | null
+  changeDescription: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -70,6 +82,16 @@ export type DocSourceMaxAggregateOutputType = {
   documentCount: number | null
   chunkCount: number | null
   lastAutoReindexAt: Date | null
+  changeStrategy: string | null
+  rssUrl: string | null
+  sitemapUrl: string | null
+  pollIntervalHours: number | null
+  lastPollAt: Date | null
+  pollEtag: string | null
+  pollContentHash: string | null
+  lastChangeAt: Date | null
+  lastChangeType: string | null
+  changeDescription: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -90,6 +112,17 @@ export type DocSourceCountAggregateOutputType = {
   chunkCount: number
   lastAutoReindexAt: number
   failedUrls: number
+  changeStrategy: number
+  rssUrl: number
+  sitemapUrl: number
+  pollIntervalHours: number
+  lastPollAt: number
+  pollEtag: number
+  pollContentHash: number
+  lastChangeAt: number
+  lastChangeType: number
+  changeDescription: number
+  indexCheckpoint: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -99,11 +132,13 @@ export type DocSourceCountAggregateOutputType = {
 export type DocSourceAvgAggregateInputType = {
   documentCount?: true
   chunkCount?: true
+  pollIntervalHours?: true
 }
 
 export type DocSourceSumAggregateInputType = {
   documentCount?: true
   chunkCount?: true
+  pollIntervalHours?: true
 }
 
 export type DocSourceMinAggregateInputType = {
@@ -121,6 +156,16 @@ export type DocSourceMinAggregateInputType = {
   documentCount?: true
   chunkCount?: true
   lastAutoReindexAt?: true
+  changeStrategy?: true
+  rssUrl?: true
+  sitemapUrl?: true
+  pollIntervalHours?: true
+  lastPollAt?: true
+  pollEtag?: true
+  pollContentHash?: true
+  lastChangeAt?: true
+  lastChangeType?: true
+  changeDescription?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -140,6 +185,16 @@ export type DocSourceMaxAggregateInputType = {
   documentCount?: true
   chunkCount?: true
   lastAutoReindexAt?: true
+  changeStrategy?: true
+  rssUrl?: true
+  sitemapUrl?: true
+  pollIntervalHours?: true
+  lastPollAt?: true
+  pollEtag?: true
+  pollContentHash?: true
+  lastChangeAt?: true
+  lastChangeType?: true
+  changeDescription?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -160,6 +215,17 @@ export type DocSourceCountAggregateInputType = {
   chunkCount?: true
   lastAutoReindexAt?: true
   failedUrls?: true
+  changeStrategy?: true
+  rssUrl?: true
+  sitemapUrl?: true
+  pollIntervalHours?: true
+  lastPollAt?: true
+  pollEtag?: true
+  pollContentHash?: true
+  lastChangeAt?: true
+  lastChangeType?: true
+  changeDescription?: true
+  indexCheckpoint?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -267,6 +333,17 @@ export type DocSourceGroupByOutputType = {
   chunkCount: number
   lastAutoReindexAt: Date | null
   failedUrls: string[]
+  changeStrategy: string | null
+  rssUrl: string | null
+  sitemapUrl: string | null
+  pollIntervalHours: number
+  lastPollAt: Date | null
+  pollEtag: string | null
+  pollContentHash: string | null
+  lastChangeAt: Date | null
+  lastChangeType: string | null
+  changeDescription: string | null
+  indexCheckpoint: runtime.JsonValue | null
   createdAt: Date
   updatedAt: Date
   _count: DocSourceCountAggregateOutputType | null
@@ -310,6 +387,17 @@ export type DocSourceWhereInput = {
   chunkCount?: Prisma.IntFilter<"DocSource"> | number
   lastAutoReindexAt?: Prisma.DateTimeNullableFilter<"DocSource"> | Date | string | null
   failedUrls?: Prisma.StringNullableListFilter<"DocSource">
+  changeStrategy?: Prisma.StringNullableFilter<"DocSource"> | string | null
+  rssUrl?: Prisma.StringNullableFilter<"DocSource"> | string | null
+  sitemapUrl?: Prisma.StringNullableFilter<"DocSource"> | string | null
+  pollIntervalHours?: Prisma.IntFilter<"DocSource"> | number
+  lastPollAt?: Prisma.DateTimeNullableFilter<"DocSource"> | Date | string | null
+  pollEtag?: Prisma.StringNullableFilter<"DocSource"> | string | null
+  pollContentHash?: Prisma.StringNullableFilter<"DocSource"> | string | null
+  lastChangeAt?: Prisma.DateTimeNullableFilter<"DocSource"> | Date | string | null
+  lastChangeType?: Prisma.StringNullableFilter<"DocSource"> | string | null
+  changeDescription?: Prisma.StringNullableFilter<"DocSource"> | string | null
+  indexCheckpoint?: Prisma.JsonNullableFilter<"DocSource">
   createdAt?: Prisma.DateTimeFilter<"DocSource"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DocSource"> | Date | string
   Workspace?: Prisma.WorkspaceListRelationFilter
@@ -332,6 +420,17 @@ export type DocSourceOrderByWithRelationInput = {
   chunkCount?: Prisma.SortOrder
   lastAutoReindexAt?: Prisma.SortOrderInput | Prisma.SortOrder
   failedUrls?: Prisma.SortOrder
+  changeStrategy?: Prisma.SortOrderInput | Prisma.SortOrder
+  rssUrl?: Prisma.SortOrderInput | Prisma.SortOrder
+  sitemapUrl?: Prisma.SortOrderInput | Prisma.SortOrder
+  pollIntervalHours?: Prisma.SortOrder
+  lastPollAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  pollEtag?: Prisma.SortOrderInput | Prisma.SortOrder
+  pollContentHash?: Prisma.SortOrderInput | Prisma.SortOrder
+  lastChangeAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  lastChangeType?: Prisma.SortOrderInput | Prisma.SortOrder
+  changeDescription?: Prisma.SortOrderInput | Prisma.SortOrder
+  indexCheckpoint?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   Workspace?: Prisma.WorkspaceOrderByRelationAggregateInput
@@ -357,6 +456,17 @@ export type DocSourceWhereUniqueInput = Prisma.AtLeast<{
   chunkCount?: Prisma.IntFilter<"DocSource"> | number
   lastAutoReindexAt?: Prisma.DateTimeNullableFilter<"DocSource"> | Date | string | null
   failedUrls?: Prisma.StringNullableListFilter<"DocSource">
+  changeStrategy?: Prisma.StringNullableFilter<"DocSource"> | string | null
+  rssUrl?: Prisma.StringNullableFilter<"DocSource"> | string | null
+  sitemapUrl?: Prisma.StringNullableFilter<"DocSource"> | string | null
+  pollIntervalHours?: Prisma.IntFilter<"DocSource"> | number
+  lastPollAt?: Prisma.DateTimeNullableFilter<"DocSource"> | Date | string | null
+  pollEtag?: Prisma.StringNullableFilter<"DocSource"> | string | null
+  pollContentHash?: Prisma.StringNullableFilter<"DocSource"> | string | null
+  lastChangeAt?: Prisma.DateTimeNullableFilter<"DocSource"> | Date | string | null
+  lastChangeType?: Prisma.StringNullableFilter<"DocSource"> | string | null
+  changeDescription?: Prisma.StringNullableFilter<"DocSource"> | string | null
+  indexCheckpoint?: Prisma.JsonNullableFilter<"DocSource">
   createdAt?: Prisma.DateTimeFilter<"DocSource"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DocSource"> | Date | string
   Workspace?: Prisma.WorkspaceListRelationFilter
@@ -379,6 +489,17 @@ export type DocSourceOrderByWithAggregationInput = {
   chunkCount?: Prisma.SortOrder
   lastAutoReindexAt?: Prisma.SortOrderInput | Prisma.SortOrder
   failedUrls?: Prisma.SortOrder
+  changeStrategy?: Prisma.SortOrderInput | Prisma.SortOrder
+  rssUrl?: Prisma.SortOrderInput | Prisma.SortOrder
+  sitemapUrl?: Prisma.SortOrderInput | Prisma.SortOrder
+  pollIntervalHours?: Prisma.SortOrder
+  lastPollAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  pollEtag?: Prisma.SortOrderInput | Prisma.SortOrder
+  pollContentHash?: Prisma.SortOrderInput | Prisma.SortOrder
+  lastChangeAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  lastChangeType?: Prisma.SortOrderInput | Prisma.SortOrder
+  changeDescription?: Prisma.SortOrderInput | Prisma.SortOrder
+  indexCheckpoint?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.DocSourceCountOrderByAggregateInput
@@ -407,6 +528,17 @@ export type DocSourceScalarWhereWithAggregatesInput = {
   chunkCount?: Prisma.IntWithAggregatesFilter<"DocSource"> | number
   lastAutoReindexAt?: Prisma.DateTimeNullableWithAggregatesFilter<"DocSource"> | Date | string | null
   failedUrls?: Prisma.StringNullableListFilter<"DocSource">
+  changeStrategy?: Prisma.StringNullableWithAggregatesFilter<"DocSource"> | string | null
+  rssUrl?: Prisma.StringNullableWithAggregatesFilter<"DocSource"> | string | null
+  sitemapUrl?: Prisma.StringNullableWithAggregatesFilter<"DocSource"> | string | null
+  pollIntervalHours?: Prisma.IntWithAggregatesFilter<"DocSource"> | number
+  lastPollAt?: Prisma.DateTimeNullableWithAggregatesFilter<"DocSource"> | Date | string | null
+  pollEtag?: Prisma.StringNullableWithAggregatesFilter<"DocSource"> | string | null
+  pollContentHash?: Prisma.StringNullableWithAggregatesFilter<"DocSource"> | string | null
+  lastChangeAt?: Prisma.DateTimeNullableWithAggregatesFilter<"DocSource"> | Date | string | null
+  lastChangeType?: Prisma.StringNullableWithAggregatesFilter<"DocSource"> | string | null
+  changeDescription?: Prisma.StringNullableWithAggregatesFilter<"DocSource"> | string | null
+  indexCheckpoint?: Prisma.JsonNullableWithAggregatesFilter<"DocSource">
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"DocSource"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"DocSource"> | Date | string
 }
@@ -427,6 +559,17 @@ export type DocSourceCreateInput = {
   chunkCount?: number
   lastAutoReindexAt?: Date | string | null
   failedUrls?: Prisma.DocSourceCreatefailedUrlsInput | string[]
+  changeStrategy?: string | null
+  rssUrl?: string | null
+  sitemapUrl?: string | null
+  pollIntervalHours?: number
+  lastPollAt?: Date | string | null
+  pollEtag?: string | null
+  pollContentHash?: string | null
+  lastChangeAt?: Date | string | null
+  lastChangeType?: string | null
+  changeDescription?: string | null
+  indexCheckpoint?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
   Workspace?: Prisma.WorkspaceCreateNestedManyWithoutDocSourceInput
@@ -449,6 +592,17 @@ export type DocSourceUncheckedCreateInput = {
   chunkCount?: number
   lastAutoReindexAt?: Date | string | null
   failedUrls?: Prisma.DocSourceCreatefailedUrlsInput | string[]
+  changeStrategy?: string | null
+  rssUrl?: string | null
+  sitemapUrl?: string | null
+  pollIntervalHours?: number
+  lastPollAt?: Date | string | null
+  pollEtag?: string | null
+  pollContentHash?: string | null
+  lastChangeAt?: Date | string | null
+  lastChangeType?: string | null
+  changeDescription?: string | null
+  indexCheckpoint?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
   Workspace?: Prisma.WorkspaceUncheckedCreateNestedManyWithoutDocSourceInput
@@ -471,6 +625,17 @@ export type DocSourceUpdateInput = {
   chunkCount?: Prisma.IntFieldUpdateOperationsInput | number
   lastAutoReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   failedUrls?: Prisma.DocSourceUpdatefailedUrlsInput | string[]
+  changeStrategy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rssUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sitemapUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pollIntervalHours?: Prisma.IntFieldUpdateOperationsInput | number
+  lastPollAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  pollEtag?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pollContentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastChangeAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastChangeType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  changeDescription?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  indexCheckpoint?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   Workspace?: Prisma.WorkspaceUpdateManyWithoutDocSourceNestedInput
@@ -493,6 +658,17 @@ export type DocSourceUncheckedUpdateInput = {
   chunkCount?: Prisma.IntFieldUpdateOperationsInput | number
   lastAutoReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   failedUrls?: Prisma.DocSourceUpdatefailedUrlsInput | string[]
+  changeStrategy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rssUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sitemapUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pollIntervalHours?: Prisma.IntFieldUpdateOperationsInput | number
+  lastPollAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  pollEtag?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pollContentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastChangeAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastChangeType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  changeDescription?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  indexCheckpoint?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   Workspace?: Prisma.WorkspaceUncheckedUpdateManyWithoutDocSourceNestedInput
@@ -515,6 +691,17 @@ export type DocSourceCreateManyInput = {
   chunkCount?: number
   lastAutoReindexAt?: Date | string | null
   failedUrls?: Prisma.DocSourceCreatefailedUrlsInput | string[]
+  changeStrategy?: string | null
+  rssUrl?: string | null
+  sitemapUrl?: string | null
+  pollIntervalHours?: number
+  lastPollAt?: Date | string | null
+  pollEtag?: string | null
+  pollContentHash?: string | null
+  lastChangeAt?: Date | string | null
+  lastChangeType?: string | null
+  changeDescription?: string | null
+  indexCheckpoint?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -535,6 +722,17 @@ export type DocSourceUpdateManyMutationInput = {
   chunkCount?: Prisma.IntFieldUpdateOperationsInput | number
   lastAutoReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   failedUrls?: Prisma.DocSourceUpdatefailedUrlsInput | string[]
+  changeStrategy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rssUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sitemapUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pollIntervalHours?: Prisma.IntFieldUpdateOperationsInput | number
+  lastPollAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  pollEtag?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pollContentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastChangeAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastChangeType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  changeDescription?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  indexCheckpoint?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -555,6 +753,17 @@ export type DocSourceUncheckedUpdateManyInput = {
   chunkCount?: Prisma.IntFieldUpdateOperationsInput | number
   lastAutoReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   failedUrls?: Prisma.DocSourceUpdatefailedUrlsInput | string[]
+  changeStrategy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rssUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sitemapUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pollIntervalHours?: Prisma.IntFieldUpdateOperationsInput | number
+  lastPollAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  pollEtag?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pollContentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastChangeAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastChangeType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  changeDescription?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  indexCheckpoint?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -583,6 +792,17 @@ export type DocSourceCountOrderByAggregateInput = {
   chunkCount?: Prisma.SortOrder
   lastAutoReindexAt?: Prisma.SortOrder
   failedUrls?: Prisma.SortOrder
+  changeStrategy?: Prisma.SortOrder
+  rssUrl?: Prisma.SortOrder
+  sitemapUrl?: Prisma.SortOrder
+  pollIntervalHours?: Prisma.SortOrder
+  lastPollAt?: Prisma.SortOrder
+  pollEtag?: Prisma.SortOrder
+  pollContentHash?: Prisma.SortOrder
+  lastChangeAt?: Prisma.SortOrder
+  lastChangeType?: Prisma.SortOrder
+  changeDescription?: Prisma.SortOrder
+  indexCheckpoint?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -590,6 +810,7 @@ export type DocSourceCountOrderByAggregateInput = {
 export type DocSourceAvgOrderByAggregateInput = {
   documentCount?: Prisma.SortOrder
   chunkCount?: Prisma.SortOrder
+  pollIntervalHours?: Prisma.SortOrder
 }
 
 export type DocSourceMaxOrderByAggregateInput = {
@@ -607,6 +828,16 @@ export type DocSourceMaxOrderByAggregateInput = {
   documentCount?: Prisma.SortOrder
   chunkCount?: Prisma.SortOrder
   lastAutoReindexAt?: Prisma.SortOrder
+  changeStrategy?: Prisma.SortOrder
+  rssUrl?: Prisma.SortOrder
+  sitemapUrl?: Prisma.SortOrder
+  pollIntervalHours?: Prisma.SortOrder
+  lastPollAt?: Prisma.SortOrder
+  pollEtag?: Prisma.SortOrder
+  pollContentHash?: Prisma.SortOrder
+  lastChangeAt?: Prisma.SortOrder
+  lastChangeType?: Prisma.SortOrder
+  changeDescription?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -626,6 +857,16 @@ export type DocSourceMinOrderByAggregateInput = {
   documentCount?: Prisma.SortOrder
   chunkCount?: Prisma.SortOrder
   lastAutoReindexAt?: Prisma.SortOrder
+  changeStrategy?: Prisma.SortOrder
+  rssUrl?: Prisma.SortOrder
+  sitemapUrl?: Prisma.SortOrder
+  pollIntervalHours?: Prisma.SortOrder
+  lastPollAt?: Prisma.SortOrder
+  pollEtag?: Prisma.SortOrder
+  pollContentHash?: Prisma.SortOrder
+  lastChangeAt?: Prisma.SortOrder
+  lastChangeType?: Prisma.SortOrder
+  changeDescription?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -633,6 +874,7 @@ export type DocSourceMinOrderByAggregateInput = {
 export type DocSourceSumOrderByAggregateInput = {
   documentCount?: Prisma.SortOrder
   chunkCount?: Prisma.SortOrder
+  pollIntervalHours?: Prisma.SortOrder
 }
 
 export type DocSourceScalarRelationFilter = {
@@ -693,6 +935,17 @@ export type DocSourceCreateWithoutChunkInput = {
   chunkCount?: number
   lastAutoReindexAt?: Date | string | null
   failedUrls?: Prisma.DocSourceCreatefailedUrlsInput | string[]
+  changeStrategy?: string | null
+  rssUrl?: string | null
+  sitemapUrl?: string | null
+  pollIntervalHours?: number
+  lastPollAt?: Date | string | null
+  pollEtag?: string | null
+  pollContentHash?: string | null
+  lastChangeAt?: Date | string | null
+  lastChangeType?: string | null
+  changeDescription?: string | null
+  indexCheckpoint?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
   Workspace?: Prisma.WorkspaceCreateNestedManyWithoutDocSourceInput
@@ -714,6 +967,17 @@ export type DocSourceUncheckedCreateWithoutChunkInput = {
   chunkCount?: number
   lastAutoReindexAt?: Date | string | null
   failedUrls?: Prisma.DocSourceCreatefailedUrlsInput | string[]
+  changeStrategy?: string | null
+  rssUrl?: string | null
+  sitemapUrl?: string | null
+  pollIntervalHours?: number
+  lastPollAt?: Date | string | null
+  pollEtag?: string | null
+  pollContentHash?: string | null
+  lastChangeAt?: Date | string | null
+  lastChangeType?: string | null
+  changeDescription?: string | null
+  indexCheckpoint?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
   Workspace?: Prisma.WorkspaceUncheckedCreateNestedManyWithoutDocSourceInput
@@ -751,6 +1015,17 @@ export type DocSourceUpdateWithoutChunkInput = {
   chunkCount?: Prisma.IntFieldUpdateOperationsInput | number
   lastAutoReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   failedUrls?: Prisma.DocSourceUpdatefailedUrlsInput | string[]
+  changeStrategy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rssUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sitemapUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pollIntervalHours?: Prisma.IntFieldUpdateOperationsInput | number
+  lastPollAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  pollEtag?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pollContentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastChangeAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastChangeType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  changeDescription?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  indexCheckpoint?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   Workspace?: Prisma.WorkspaceUpdateManyWithoutDocSourceNestedInput
@@ -772,6 +1047,17 @@ export type DocSourceUncheckedUpdateWithoutChunkInput = {
   chunkCount?: Prisma.IntFieldUpdateOperationsInput | number
   lastAutoReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   failedUrls?: Prisma.DocSourceUpdatefailedUrlsInput | string[]
+  changeStrategy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rssUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sitemapUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pollIntervalHours?: Prisma.IntFieldUpdateOperationsInput | number
+  lastPollAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  pollEtag?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pollContentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastChangeAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastChangeType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  changeDescription?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  indexCheckpoint?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   Workspace?: Prisma.WorkspaceUncheckedUpdateManyWithoutDocSourceNestedInput
@@ -793,6 +1079,17 @@ export type DocSourceCreateWithoutWorkspaceInput = {
   chunkCount?: number
   lastAutoReindexAt?: Date | string | null
   failedUrls?: Prisma.DocSourceCreatefailedUrlsInput | string[]
+  changeStrategy?: string | null
+  rssUrl?: string | null
+  sitemapUrl?: string | null
+  pollIntervalHours?: number
+  lastPollAt?: Date | string | null
+  pollEtag?: string | null
+  pollContentHash?: string | null
+  lastChangeAt?: Date | string | null
+  lastChangeType?: string | null
+  changeDescription?: string | null
+  indexCheckpoint?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
   Chunk?: Prisma.ChunkCreateNestedManyWithoutDocSourceInput
@@ -814,6 +1111,17 @@ export type DocSourceUncheckedCreateWithoutWorkspaceInput = {
   chunkCount?: number
   lastAutoReindexAt?: Date | string | null
   failedUrls?: Prisma.DocSourceCreatefailedUrlsInput | string[]
+  changeStrategy?: string | null
+  rssUrl?: string | null
+  sitemapUrl?: string | null
+  pollIntervalHours?: number
+  lastPollAt?: Date | string | null
+  pollEtag?: string | null
+  pollContentHash?: string | null
+  lastChangeAt?: Date | string | null
+  lastChangeType?: string | null
+  changeDescription?: string | null
+  indexCheckpoint?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
   Chunk?: Prisma.ChunkUncheckedCreateNestedManyWithoutDocSourceInput
@@ -851,6 +1159,17 @@ export type DocSourceUpdateWithoutWorkspaceInput = {
   chunkCount?: Prisma.IntFieldUpdateOperationsInput | number
   lastAutoReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   failedUrls?: Prisma.DocSourceUpdatefailedUrlsInput | string[]
+  changeStrategy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rssUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sitemapUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pollIntervalHours?: Prisma.IntFieldUpdateOperationsInput | number
+  lastPollAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  pollEtag?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pollContentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastChangeAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastChangeType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  changeDescription?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  indexCheckpoint?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   Chunk?: Prisma.ChunkUpdateManyWithoutDocSourceNestedInput
@@ -872,6 +1191,17 @@ export type DocSourceUncheckedUpdateWithoutWorkspaceInput = {
   chunkCount?: Prisma.IntFieldUpdateOperationsInput | number
   lastAutoReindexAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   failedUrls?: Prisma.DocSourceUpdatefailedUrlsInput | string[]
+  changeStrategy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  rssUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sitemapUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pollIntervalHours?: Prisma.IntFieldUpdateOperationsInput | number
+  lastPollAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  pollEtag?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pollContentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  lastChangeAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastChangeType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  changeDescription?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  indexCheckpoint?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   Chunk?: Prisma.ChunkUncheckedUpdateManyWithoutDocSourceNestedInput
@@ -933,6 +1263,17 @@ export type DocSourceSelect<ExtArgs extends runtime.Types.Extensions.InternalArg
   chunkCount?: boolean
   lastAutoReindexAt?: boolean
   failedUrls?: boolean
+  changeStrategy?: boolean
+  rssUrl?: boolean
+  sitemapUrl?: boolean
+  pollIntervalHours?: boolean
+  lastPollAt?: boolean
+  pollEtag?: boolean
+  pollContentHash?: boolean
+  lastChangeAt?: boolean
+  lastChangeType?: boolean
+  changeDescription?: boolean
+  indexCheckpoint?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   Workspace?: boolean | Prisma.DocSource$WorkspaceArgs<ExtArgs>
@@ -956,6 +1297,17 @@ export type DocSourceSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Ext
   chunkCount?: boolean
   lastAutoReindexAt?: boolean
   failedUrls?: boolean
+  changeStrategy?: boolean
+  rssUrl?: boolean
+  sitemapUrl?: boolean
+  pollIntervalHours?: boolean
+  lastPollAt?: boolean
+  pollEtag?: boolean
+  pollContentHash?: boolean
+  lastChangeAt?: boolean
+  lastChangeType?: boolean
+  changeDescription?: boolean
+  indexCheckpoint?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }, ExtArgs["result"]["docSource"]>
@@ -976,6 +1328,17 @@ export type DocSourceSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Ext
   chunkCount?: boolean
   lastAutoReindexAt?: boolean
   failedUrls?: boolean
+  changeStrategy?: boolean
+  rssUrl?: boolean
+  sitemapUrl?: boolean
+  pollIntervalHours?: boolean
+  lastPollAt?: boolean
+  pollEtag?: boolean
+  pollContentHash?: boolean
+  lastChangeAt?: boolean
+  lastChangeType?: boolean
+  changeDescription?: boolean
+  indexCheckpoint?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }, ExtArgs["result"]["docSource"]>
@@ -996,11 +1359,22 @@ export type DocSourceSelectScalar = {
   chunkCount?: boolean
   lastAutoReindexAt?: boolean
   failedUrls?: boolean
+  changeStrategy?: boolean
+  rssUrl?: boolean
+  sitemapUrl?: boolean
+  pollIntervalHours?: boolean
+  lastPollAt?: boolean
+  pollEtag?: boolean
+  pollContentHash?: boolean
+  lastChangeAt?: boolean
+  lastChangeType?: boolean
+  changeDescription?: boolean
+  indexCheckpoint?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type DocSourceOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "canonicalUrl" | "rootUrl" | "productKey" | "productName" | "docType" | "version" | "description" | "status" | "statusMessage" | "lastIndexedAt" | "documentCount" | "chunkCount" | "lastAutoReindexAt" | "failedUrls" | "createdAt" | "updatedAt", ExtArgs["result"]["docSource"]>
+export type DocSourceOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "canonicalUrl" | "rootUrl" | "productKey" | "productName" | "docType" | "version" | "description" | "status" | "statusMessage" | "lastIndexedAt" | "documentCount" | "chunkCount" | "lastAutoReindexAt" | "failedUrls" | "changeStrategy" | "rssUrl" | "sitemapUrl" | "pollIntervalHours" | "lastPollAt" | "pollEtag" | "pollContentHash" | "lastChangeAt" | "lastChangeType" | "changeDescription" | "indexCheckpoint" | "createdAt" | "updatedAt", ExtArgs["result"]["docSource"]>
 export type DocSourceInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   Workspace?: boolean | Prisma.DocSource$WorkspaceArgs<ExtArgs>
   Chunk?: boolean | Prisma.DocSource$ChunkArgs<ExtArgs>
@@ -1031,6 +1405,17 @@ export type $DocSourcePayload<ExtArgs extends runtime.Types.Extensions.InternalA
     chunkCount: number
     lastAutoReindexAt: Date | null
     failedUrls: string[]
+    changeStrategy: string | null
+    rssUrl: string | null
+    sitemapUrl: string | null
+    pollIntervalHours: number
+    lastPollAt: Date | null
+    pollEtag: string | null
+    pollContentHash: string | null
+    lastChangeAt: Date | null
+    lastChangeType: string | null
+    changeDescription: string | null
+    indexCheckpoint: runtime.JsonValue | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["docSource"]>
@@ -1473,6 +1858,17 @@ export interface DocSourceFieldRefs {
   readonly chunkCount: Prisma.FieldRef<"DocSource", 'Int'>
   readonly lastAutoReindexAt: Prisma.FieldRef<"DocSource", 'DateTime'>
   readonly failedUrls: Prisma.FieldRef<"DocSource", 'String[]'>
+  readonly changeStrategy: Prisma.FieldRef<"DocSource", 'String'>
+  readonly rssUrl: Prisma.FieldRef<"DocSource", 'String'>
+  readonly sitemapUrl: Prisma.FieldRef<"DocSource", 'String'>
+  readonly pollIntervalHours: Prisma.FieldRef<"DocSource", 'Int'>
+  readonly lastPollAt: Prisma.FieldRef<"DocSource", 'DateTime'>
+  readonly pollEtag: Prisma.FieldRef<"DocSource", 'String'>
+  readonly pollContentHash: Prisma.FieldRef<"DocSource", 'String'>
+  readonly lastChangeAt: Prisma.FieldRef<"DocSource", 'DateTime'>
+  readonly lastChangeType: Prisma.FieldRef<"DocSource", 'String'>
+  readonly changeDescription: Prisma.FieldRef<"DocSource", 'String'>
+  readonly indexCheckpoint: Prisma.FieldRef<"DocSource", 'Json'>
   readonly createdAt: Prisma.FieldRef<"DocSource", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"DocSource", 'DateTime'>
 }

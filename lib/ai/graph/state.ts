@@ -17,6 +17,11 @@ export interface AgentState {
   productName: string;
   isPro: boolean;
   messages: BaseMessage[];
+  chatHistory: { role: string; content: string }[];
+  chatSummary: string;
+
+  // Pre-loaded results from handler (already Cohere-reranked — skip retrieve+rerank)
+  preloadedResults: SearchResult[];
 
   // Classification
   queryType?: "simple" | "complex";
@@ -54,6 +59,9 @@ export function createInitialState(
   docsSiteUrl: string,
   productName: string,
   isPro: boolean,
+  chatHistory: { role: string; content: string }[] = [],
+  chatSummary: string = "",
+  preloadedResults: SearchResult[] = [],
 ): Partial<AgentState> {
   return {
     query,
@@ -62,6 +70,9 @@ export function createInitialState(
     productName,
     isPro,
     messages: [],
+    chatHistory,
+    chatSummary,
+    preloadedResults,
     searchResults: [],
     rerankedResults: [],
     webResults: [],

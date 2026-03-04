@@ -1,8 +1,18 @@
 import { Webhooks } from "@polar-sh/nextjs";
 import { prisma } from "@/lib/db/prisma";
+import { invalidateSubscriptionCache } from "@/lib/subscription";
+
+// Guard: if the webhook secret is missing, signature verification is skipped entirely
+// by the Polar SDK, allowing anyone to spoof webhook events (#30 fix)
+const polarWebhookSecret = process.env.POLAR_WEBHOOK_SECRET;
+if (!polarWebhookSecret) {
+  throw new Error(
+    "[Polar Webhook] POLAR_WEBHOOK_SECRET is not set. Webhook signature verification will not work.",
+  );
+}
 
 export const POST = Webhooks({
-  webhookSecret: process.env.POLAR_WEBHOOK_SECRET!,
+  webhookSecret: polarWebhookSecret,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onPayload: async (payload: any) => {
     const { type, data } = payload;
@@ -25,7 +35,7 @@ export const POST = Webhooks({
               : null;
 
           if (whereClause && customerId) {
-            await prisma.user.update({
+            const updated = await prisma.user.update({
               where: whereClause,
               data: {
                 customerId,
@@ -37,6 +47,7 @@ export const POST = Webhooks({
                 variantId: data.product_price_id,
               },
             });
+            await invalidateSubscriptionCache(updated.id);
             console.log(
               `[Polar Webhook] order.created → user updated (customerId: ${customerId})`,
             );
@@ -104,7 +115,7 @@ export const POST = Webhooks({
               `[Polar Webhook] ${type} → polar status="${polarStatus}", resolved="${resolvedStatus}"`,
             );
 
-            await prisma.user.update({
+            const updated = await prisma.user.update({
               where: whereClause,
               data: {
                 subscriptionId: data.id,
@@ -116,6 +127,7 @@ export const POST = Webhooks({
                 variantId: data.price_id || data.product_price_id,
               },
             });
+            await invalidateSubscriptionCache(updated.id);
             console.log(
               `[Polar Webhook] ${type} → user updated (customerId: ${customerId})`,
             );
@@ -124,7 +136,11 @@ export const POST = Webhooks({
         }
 
         case "subscription.revoked":
-        case "subscription.canceled":
+        case "subscription.canceled": {
+          const affected = await prisma.user.findMany({
+            where: { subscriptionId: data.id },
+            select: { id: true },
+          });
           await prisma.user.updateMany({
             where: { subscriptionId: data.id },
             data: {
@@ -134,10 +150,12 @@ export const POST = Webhooks({
                 : undefined,
             },
           });
+          await Promise.all(affected.map((u) => invalidateSubscriptionCache(u.id)));
           console.log(
             `[Polar Webhook] ${type} → subscription canceled (periodEnd: ${data.current_period_end || "none"})`,
           );
           break;
+        }
 
         default:
           console.log(`[Polar Webhook] Unhandled event type: ${type}`);

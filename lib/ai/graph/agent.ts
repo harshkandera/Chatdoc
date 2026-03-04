@@ -8,16 +8,22 @@ import {
 import { RunnableConfig } from "@langchain/core/runnables";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { ChatGroq } from "@langchain/groq";
+import { invokeModel } from "../models";
+import type { ModelProvider } from "../model-options";
 import { AgentState, createInitialState } from "./state";
 import {
-  searchDocsFunction,
   rerankDocsFunction,
   generateAnswerFunction,
   agentTools,
 } from "./tools";
+import { retrieveWithKg } from "../query/search";
 import { buildAgentPrompt } from "./prompt";
+import {
+  MAX_AGENT_HOPS,
+  isInsufficientAnswer,
+  CONFIDENCE_HIGH_THRESHOLD,
+} from "../constants";
 import { gradeContextSufficiency } from "./grader";
-import { MAX_AGENT_HOPS, isInsufficientAnswer } from "../constants";
 import type { StreamEvent } from "../types";
 
 // ─── RETRY HELPER ───
@@ -52,6 +58,9 @@ const StateAnnotation = Annotation.Root({
   messages: Annotation<BaseMessage[]>({
     reducer: (x, y) => x.concat(y),
   }),
+  chatHistory: Annotation<{ role: string; content: string }[]>,
+  chatSummary: Annotation<string>,
+  preloadedResults: Annotation<AgentState["preloadedResults"]>,
   searchResults: Annotation<AgentState["searchResults"]>,
   rerankedResults: Annotation<AgentState["rerankedResults"]>,
   webResults: Annotation<AgentState["webResults"]>,
@@ -83,6 +92,26 @@ async function retrieveNode(
 ): Promise<Partial<GraphState>> {
   const onStream = config?.configurable?.onStream as OnStream | undefined;
   const start = Date.now();
+
+  // ── SKIP if preloaded results exist (already Cohere-reranked by handler) ──
+  if (state.preloadedResults && state.preloadedResults.length > 0) {
+    const topScore = state.preloadedResults[0]?.score || 0;
+    console.log(
+      `\n🤖 [Graph] ──── retrieve ──── SKIPPED (preloaded ${state.preloadedResults.length} chunks, topScore=${topScore.toFixed(3)})`,
+    );
+    onStream?.({
+      type: "tool_end",
+      tool: "deep_vector_search",
+      result: {
+        chunks: state.preloadedResults.length,
+        topScore: Number(topScore.toFixed(3)),
+        skipped: true,
+        reason: "preloaded from handler (already Cohere-reranked)",
+      },
+    });
+    return { searchResults: state.preloadedResults, topScore };
+  }
+
   console.log(`\n🤖 [Graph] ──── retrieve ──── START`);
   console.log(`   📝 Query: "${state.query.slice(0, 80)}"`);
   console.log(`   📦 DocSource: ${state.docSourceId}`);
@@ -94,15 +123,13 @@ async function retrieveNode(
   });
 
   try {
-    const results = await withRetry(
-      () => searchDocsFunction(state.query, state.docSourceId, 20),
+    const { results, topScore, kgPageCount, kgEntityCount } = await withRetry(
+      () => retrieveWithKg(state.query, state.docSourceId, 20),
       1,
     );
 
-    const topScore = results.length > 0 ? results[0].score : 0;
-
     console.log(
-      `🤖 [Graph] ──── retrieve ──── END (${Date.now() - start}ms) | ${results.length} results | topScore=${topScore.toFixed(3)}`,
+      `🤖 [Graph] ──── retrieve ──── END (${Date.now() - start}ms) | ${results.length} results | topScore=${topScore.toFixed(3)} | kg_boosted=${kgPageCount}/${results.length} (${kgEntityCount} entities)`,
     );
 
     const uniqueUrls = Array.from(
@@ -116,6 +143,7 @@ async function retrieveNode(
         chunks: results.length,
         topScore: Number(topScore.toFixed(3)),
         urls: uniqueUrls,
+        kgBoosted: kgPageCount,
       },
     });
 
@@ -136,37 +164,30 @@ async function retrieveNode(
   }
 }
 
-async function gradeContextNode(
-  state: GraphState,
-  config: RunnableConfig,
-): Promise<Partial<GraphState>> {
-  const onStream = config?.configurable?.onStream as OnStream | undefined;
-  const start = Date.now();
-  console.log(`\n🤖 [Graph] ──── grade_context ──── START`);
-  console.log(`   📊 Chunks to grade: ${state.searchResults.length}`);
+// ─── RERANK DECISION ───
+// Reranking costs latency (~300–600ms). Only do it when it adds value:
+//   HIGH confidence  → vector scores are already trustworthy, skip rerank
+//   < 5 candidates  → not enough spread to compare meaningfully, skip
+//   MEDIUM / LOW with enough candidates → rerank (biggest ROI here)
+const RERANK_MIN_CANDIDATES = 5;
 
-  onStream?.({
-    type: "tool_start",
-    tool: "context_grader",
-    input: { chunks: state.searchResults.length },
-  });
-
-  const isContextSufficient = await gradeContextSufficiency(
-    state.query,
-    state.searchResults,
-  );
-
+function shouldRerank(topScore: number, candidateCount: number): boolean {
+  if (topScore >= CONFIDENCE_HIGH_THRESHOLD) {
+    console.log(
+      `   ⚡ [Rerank] Skipping — high confidence (${topScore.toFixed(3)} >= ${CONFIDENCE_HIGH_THRESHOLD}), vector order is trustworthy`,
+    );
+    return false;
+  }
+  if (candidateCount < RERANK_MIN_CANDIDATES) {
+    console.log(
+      `   ⚡ [Rerank] Skipping — too few candidates (${candidateCount} < ${RERANK_MIN_CANDIDATES})`,
+    );
+    return false;
+  }
   console.log(
-    `🤖 [Graph] ──── grade_context ──── END (${Date.now() - start}ms) | isContextSufficient=${isContextSufficient}`,
+    `   ⚡ [Rerank] Proceeding — medium/low confidence (${topScore.toFixed(3)}) with ${candidateCount} candidates`,
   );
-
-  onStream?.({
-    type: "tool_end",
-    tool: "context_grader",
-    result: { isContextSufficient },
-  });
-
-  return { isContextSufficient };
+  return true;
 }
 
 async function rerankNode(
@@ -175,19 +196,61 @@ async function rerankNode(
 ): Promise<Partial<GraphState>> {
   const onStream = config?.configurable?.onStream as OnStream | undefined;
   const start = Date.now();
+
+  // ── SKIP if results were preloaded (already Cohere-reranked by handler) ──
+  if (state.preloadedResults && state.preloadedResults.length > 0) {
+    const top = state.preloadedResults.slice(0, 5);
+    console.log(
+      `\n🤖 [Graph] ──── rerank ──── SKIPPED (preloaded, already Cohere-reranked) | using top ${top.length} chunks`,
+    );
+    onStream?.({
+      type: "tool_end",
+      tool: "deep_rerank",
+      result: {
+        reranked: top.length,
+        topScore: Number((top[0]?.score || 0).toFixed(3)),
+        skipped: true,
+        reason: "preloaded from handler (already Cohere-reranked)",
+      },
+    });
+    return { rerankedResults: top };
+  }
+
+  const candidates = state.searchResults.slice(0, 10);
+
   console.log(`\n🤖 [Graph] ──── rerank ──── START`);
-  console.log(`   📊 Candidates: ${state.searchResults.length} (using top 8)`);
+  console.log(
+    `   📊 Candidates: ${candidates.length} | topScore=${state.topScore.toFixed(3)}`,
+  );
 
   onStream?.({
     type: "tool_start",
     tool: "deep_rerank",
-    input: { candidates: state.searchResults.length },
+    input: { candidates: candidates.length },
   });
 
+  // Skip rerank when it won't add value
+  if (!shouldRerank(state.topScore, candidates.length)) {
+    const top = candidates.slice(0, 5);
+    console.log(
+      `🤖 [Graph] ──── rerank ──── SKIPPED (${Date.now() - start}ms) | using top ${top.length} vector results`,
+    );
+    onStream?.({
+      type: "tool_end",
+      tool: "deep_rerank",
+      result: {
+        reranked: top.length,
+        confidence: state.confidence,
+        topScore: Number(state.topScore.toFixed(3)),
+        skipped: true,
+      },
+    });
+    return { rerankedResults: top };
+  }
+
   try {
-    const candidates = state.searchResults.slice(0, 8);
     const { reranked, confidence, topScore } = await withRetry(
-      () => rerankDocsFunction(state.query, candidates, 8),
+      () => rerankDocsFunction(state.query, candidates, 5),
       1,
     );
 
@@ -202,6 +265,7 @@ async function rerankNode(
         reranked: reranked.length,
         confidence,
         topScore: Number(topScore.toFixed(3)),
+        skipped: false,
       },
     });
 
@@ -213,16 +277,85 @@ async function rerankNode(
   } catch (error) {
     const msg = (error as Error).message;
     console.error(`❌ [Graph] rerank failed: ${msg}`);
+    const fallback = candidates.slice(0, 5);
     onStream?.({
       type: "tool_end",
       tool: "deep_rerank",
-      result: { error: msg },
+      result: { error: msg, reranked: fallback.length },
     });
     return {
-      rerankedResults: [],
+      rerankedResults: fallback,
       errors: [`rerank: ${msg}`],
     };
   }
+}
+
+// ─── FAST-PATH SCORE FOR THE GRADER BYPASS ───
+// If Cohere rerank score already clears this bar, skip the LLM grader entirely.
+const GRADE_FAST_PATH_THRESHOLD = 0.6;
+
+async function gradeNode(
+  state: GraphState,
+  config: RunnableConfig,
+): Promise<Partial<GraphState>> {
+  const onStream = config?.configurable?.onStream as OnStream | undefined;
+  const start = Date.now();
+
+  const chunks =
+    state.rerankedResults.length > 0
+      ? state.rerankedResults
+      : state.searchResults.slice(0, 5);
+
+  // ── Fast bypass: high Cohere score → no need to call the LLM grader ──
+  if (state.topScore >= GRADE_FAST_PATH_THRESHOLD && chunks.length >= 2) {
+    console.log(
+      `\n🤖 [Graph] ──── grade ──── FAST PATH (topScore=${state.topScore.toFixed(3)} >= ${GRADE_FAST_PATH_THRESHOLD}) → contextSufficient=true`,
+    );
+    onStream?.({
+      type: "tool_end",
+      tool: "context_grader",
+      result: { isSufficient: true, skipped: true, reason: "high topScore" },
+    });
+    return { isContextSufficient: true, confidence: "high" };
+  }
+
+  // ── No chunks at all → definitely insufficient ──
+  if (chunks.length === 0) {
+    console.log(
+      `\n🤖 [Graph] ──── grade ──── NO CHUNKS → contextSufficient=false`,
+    );
+    onStream?.({
+      type: "tool_end",
+      tool: "context_grader",
+      result: { isSufficient: false, skipped: true, reason: "no chunks" },
+    });
+    return { isContextSufficient: false, confidence: "low" };
+  }
+
+  console.log(
+    `\n🤖 [Graph] ──── grade ──── START (${chunks.length} chunks, topScore=${state.topScore.toFixed(3)})`,
+  );
+  onStream?.({
+    type: "tool_start",
+    tool: "context_grader",
+    input: { chunks: chunks.length, query: state.query.slice(0, 80) },
+  });
+
+  const isSufficient = await gradeContextSufficiency(state.query, chunks);
+
+  console.log(
+    `🤖 [Graph] ──── grade ──── END (${Date.now() - start}ms) | isSufficient=${isSufficient}`,
+  );
+  onStream?.({
+    type: "tool_end",
+    tool: "context_grader",
+    result: { isSufficient, chunks: chunks.length },
+  });
+
+  return {
+    isContextSufficient: isSufficient,
+    confidence: isSufficient ? "medium" : "low",
+  };
 }
 
 async function generateNode(
@@ -376,9 +509,29 @@ async function webAgentNode(
     let messages = state.messages;
     if (messages.length === 0) {
       console.log(`   🔧 Initializing agent with system prompt + user query`);
+
+      // Build context from reranked or raw results to pass to LLM
+      const chunks =
+        state.rerankedResults.length > 0
+          ? state.rerankedResults
+          : state.searchResults.slice(0, 5);
+      const retrievedContext =
+        chunks.length > 0
+          ? chunks
+              .map(
+                (r, i) =>
+                  `[${i + 1}] **${r.metadata.title}** (${r.metadata.url})\n${r.metadata.content.slice(0, 800)}`,
+              )
+              .join("\n\n")
+          : undefined;
+
       const systemPrompt = buildAgentPrompt(
         state.productName,
         state.docsSiteUrl,
+        retrievedContext,
+        state.chatSummary,
+        state.chatHistory,
+        !state.isContextSufficient, // tells LLM it MUST search when grader said insufficient
       );
       messages = [
         new SystemMessage(systemPrompt),
@@ -386,8 +539,10 @@ async function webAgentNode(
       ];
     }
 
+    const agentModelId =
+      process.env.AGENT_MODEL_ID || "llama-3.3-70b-versatile";
     const model = new ChatGroq({
-      model: "openai/gpt-oss-120b",
+      model: agentModelId,
       temperature: 0,
     }).bindTools(agentTools);
 
@@ -432,128 +587,251 @@ async function webAgentNode(
   }
 }
 
+async function webGenerateNode(
+  state: GraphState,
+  config: RunnableConfig,
+): Promise<Partial<GraphState>> {
+  const onStream = config?.configurable?.onStream as OnStream | undefined;
+  const start = Date.now();
+  console.log(`\n🤖 [Graph] ──── web_generate ──── START`);
+
+  onStream?.({
+    type: "tool_start",
+    tool: "deep_generate",
+    input: { source: "web_results" },
+  });
+
+  // Collect scraped content from tool messages
+  const webContent: { url: string; title: string; content: string }[] = [];
+  for (const msg of state.messages) {
+    if (msg._getType() === "tool") {
+      try {
+        const parsed = JSON.parse(
+          typeof msg.content === "string" ? msg.content : "",
+        );
+        if (parsed.scrapedPages) {
+          for (const page of parsed.scrapedPages) {
+            if (page.url && !webContent.some((w) => w.url === page.url)) {
+              webContent.push(page);
+            }
+          }
+        }
+      } catch {
+        // skip non-JSON
+      }
+    }
+  }
+
+  // Also check last AI message for a direct text answer
+  const lastAI = [...state.messages]
+    .reverse()
+    .find((m) => m._getType() === "ai" && !(m as AIMessage).tool_calls?.length);
+  if (lastAI && typeof lastAI.content === "string" && lastAI.content.trim()) {
+    // The LLM already wrote an answer — use it
+    const sources = webContent.map((w) => w.url);
+    console.log(
+      `🤖 [Graph] ──── web_generate ──── END (${Date.now() - start}ms) | LLM answer ${lastAI.content.length} chars | ${sources.length} sources`,
+    );
+    onStream?.({
+      type: "tool_end",
+      tool: "deep_generate",
+      result: { length: lastAI.content.length, sources: sources.length },
+    });
+    return {
+      answer: `⚠️ **Note**: This answer is based on web search results, not indexed documentation.\n\n${lastAI.content}`,
+      sources,
+      finished: true,
+    };
+  }
+
+  // No text answer from LLM — generate one from scraped pages + vector results
+  const allChunks = [
+    ...state.rerankedResults,
+    ...(state.rerankedResults.length === 0
+      ? state.searchResults.slice(0, 5)
+      : []),
+  ];
+
+  // Add web content as synthetic chunks
+  for (const page of webContent) {
+    allChunks.push({
+      id: `web-${webContent.indexOf(page)}`,
+      score: 0.9,
+      metadata: {
+        url: page.url,
+        title: page.title,
+        section: "",
+        docSourceId: state.docSourceId,
+        content: page.content.slice(0, 2000),
+        urlHash: "",
+        chunkIndex: 0,
+        productName: state.productName,
+        indexedAt: new Date().toISOString(),
+      },
+    });
+  }
+
+  if (allChunks.length === 0) {
+    const answer = `I couldn't find relevant information about "${state.query}" in the ${state.productName} documentation, even after searching the web.`;
+    onStream?.({
+      type: "tool_end",
+      tool: "deep_generate",
+      result: { length: answer.length, fallback: true },
+    });
+    return { answer, sources: [], finished: true };
+  }
+
+  try {
+    const { answer, sources } = await generateAnswerFunction(
+      state.query,
+      allChunks,
+      state.productName,
+      true,
+    );
+
+    console.log(
+      `🤖 [Graph] ──── web_generate ──── END (${Date.now() - start}ms) | ${answer.length} chars | ${sources.length} sources`,
+    );
+    onStream?.({
+      type: "tool_end",
+      tool: "deep_generate",
+      result: { length: answer.length, sources: sources.length },
+    });
+
+    return { answer, sources, finished: true };
+  } catch (error) {
+    const msg = (error as Error).message;
+    console.error(`❌ [Graph] web_generate failed: ${msg}`);
+    onStream?.({
+      type: "tool_end",
+      tool: "deep_generate",
+      result: { error: msg },
+    });
+    return {
+      answer: "I encountered an error generating an answer. Please try again.",
+      sources: [],
+      finished: true,
+      errors: [`web_generate: ${msg}`],
+    };
+  }
+}
+
 // ─── ROUTING LOGIC ───
-// Routing is based on semantic answerability (isContextSufficient),
-// NOT vector scores. Scores are kept for telemetry only.
+// Routing is driven by the LLM grader verdict (isContextSufficient).
+// gradeNode sets isContextSufficient — fast-bypasses when topScore is already high.
 
 function routeAfterGrade(
   state: GraphState,
-): "rerank" | "web_agent" | "fallback_generate" {
+): "web_agent" | "generate" | "fallback_generate" {
   if (state.isContextSufficient) {
     console.log(
-      `🔀 [Graph] Route grade_context: isContextSufficient=true → rerank`,
+      `🔀 [Graph] Route grade: context SUFFICIENT → generate`,
     );
-    return "rerank";
+    return "generate";
   }
 
-  if (state.isPro && process.env.TAVILY_API_KEY) {
+  // Context graded insufficient — try web search for Pro users
+  if (state.isPro && (process.env.TAVILY_API_KEY || process.env.SEARXNG_URL)) {
     console.log(
-      `🔀 [Graph] Route grade_context: isContextSufficient=false + isPro → web_agent`,
+      `🔀 [Graph] Route grade: context INSUFFICIENT + isPro + provider → web_agent`,
     );
     return "web_agent";
   }
 
-  console.log(
-    `🔀 [Graph] Route grade_context: isContextSufficient=false + free user → fallback_generate`,
-  );
+  if (state.isPro) {
+    console.log(
+      `🔀 [Graph] Route grade: context INSUFFICIENT + isPro (no provider) → generate`,
+    );
+    return "generate";
+  }
+
+  console.log(`🔀 [Graph] Route grade: free user → fallback_generate`);
   return "fallback_generate";
 }
 
-function routeAfterGenerate(state: GraphState): "end" | "web_agent" {
-  if (state.finished) {
-    console.log(`🔀 [Graph] Route generate: sufficient answer → end`);
-    return "end";
-  }
-
-  if (
-    state.isPro &&
-    process.env.TAVILY_API_KEY &&
-    state.hopCount < MAX_AGENT_HOPS
-  ) {
-    console.log(
-      `🔀 [Graph] Route generate: insufficient + isPro + hops=${state.hopCount} → web_agent`,
-    );
-    return "web_agent";
-  }
-
-  console.log(
-    `🔀 [Graph] Route generate: insufficient but cannot escalate → end`,
-  );
-  return "end";
-}
-
-function routeWebAgent(state: GraphState): "tools" | "end" {
+function routeWebAgent(state: GraphState): "tools" | "web_generate" {
+  // ── Hard limit: force generate after MAX_AGENT_HOPS ──
   if (state.hopCount >= MAX_AGENT_HOPS) {
     console.log(
-      `🔀 [Graph] Route web_agent: hop limit reached (${state.hopCount}/${MAX_AGENT_HOPS}) → end`,
+      `🔀 [Graph] Route web_agent: hop limit reached (${state.hopCount}/${MAX_AGENT_HOPS}) → web_generate`,
     );
-    return "end";
+    return "web_generate";
   }
 
-  if (state.errors.length > 3) {
+  // ── Too many errors: bail out ──
+  if (state.errors.length > 2) {
     console.log(
-      `🔀 [Graph] Route web_agent: too many errors (${state.errors.length}) → end`,
+      `🔀 [Graph] Route web_agent: too many errors (${state.errors.length}) → web_generate`,
     );
-    return "end";
+    return "web_generate";
   }
 
   const lastMessage = state.messages[state.messages.length - 1];
+
+  // ── No message or not AI: force generate ──
   if (!lastMessage || lastMessage._getType() !== "ai") {
-    console.log(`🔀 [Graph] Route web_agent: no AI message → end`);
-    return "end";
+    console.log(`🔀 [Graph] Route web_agent: no AI message → web_generate`);
+    return "web_generate";
   }
 
-  const hasToolCalls = !!(lastMessage as AIMessage).tool_calls?.length;
-  const decision = hasToolCalls ? "tools" : "end";
+  const aiMsg = lastMessage as AIMessage;
+  const hasToolCalls = !!aiMsg.tool_calls?.length;
+  const hasTextContent =
+    typeof aiMsg.content === "string" && aiMsg.content.trim().length > 50;
+
+  // ── If LLM wrote a text answer (no tool calls), go to web_generate ──
+  if (!hasToolCalls) {
+    console.log(
+      `🔀 [Graph] Route web_agent: no tool calls, hasText=${hasTextContent} → web_generate`,
+    );
+    return "web_generate";
+  }
+
+  // ── LLM wants to call tools — allow it ──
   console.log(
-    `🔀 [Graph] Route web_agent: hasToolCalls=${hasToolCalls} hopCount=${state.hopCount} → ${decision}`,
+    `🔀 [Graph] Route web_agent: toolCalls=${aiMsg.tool_calls?.length} hopCount=${state.hopCount} → tools`,
   );
-  return decision;
+  return "tools";
 }
 
 // ─── GRAPH CONSTRUCTION ───
 //
-// retrieve → grade_context → routeAfterGrade
-//   ├─ sufficient    → rerank → generate → routeAfterGenerate
-//   │                                       ├─ sufficient → END
-//   │                                       └─ insufficient + Pro → web_agent
-//   ├─ insufficient + Pro  → web_agent → routeWebAgent
-//   │                                    ├─ tool_calls → tools → web_agent
-//   │                                    └─ no tool_calls → END
-//   └─ insufficient + Free → fallback_generate → END
+// retrieve → rerank → grade → routeAfterGrade
+//   ├─ isContextSufficient=true  → generate → END   (fast path)
+//   ├─ Pro + provider            → web_agent         (LLM MUST search if grader said insufficient)
+//   │                                ├─ tool_calls → tools → web_agent  (max 2-3 hops)
+//   │                                └─ no tool_calls → web_generate → END
+//   └─ Free / no provider        → fallback_generate → END
 
 function buildGraph() {
   const workflow = new StateGraph(StateAnnotation)
     .addNode("retrieve", retrieveNode)
-    .addNode("grade_context", gradeContextNode)
     .addNode("rerank", rerankNode)
+    .addNode("grade", gradeNode)
     .addNode("generate", generateNode)
     .addNode("fallback_generate", fallbackGenerateNode)
     .addNode("web_agent", webAgentNode)
+    .addNode("web_generate", webGenerateNode)
     .addNode("tools", new ToolNode(agentTools))
 
     .addEdge(START, "retrieve")
-    .addEdge("retrieve", "grade_context")
+    .addEdge("retrieve", "rerank")
+    .addEdge("rerank", "grade")
 
-    .addConditionalEdges("grade_context", routeAfterGrade, {
-      rerank: "rerank",
+    .addConditionalEdges("grade", routeAfterGrade, {
       web_agent: "web_agent",
+      generate: "generate",
       fallback_generate: "fallback_generate",
-    })
-
-    .addEdge("rerank", "generate")
-
-    .addConditionalEdges("generate", routeAfterGenerate, {
-      end: END,
-      web_agent: "web_agent",
     })
 
     .addConditionalEdges("web_agent", routeWebAgent, {
       tools: "tools",
-      end: END,
+      web_generate: "web_generate",
     })
     .addEdge("tools", "web_agent")
 
+    .addEdge("generate", END)
+    .addEdge("web_generate", END)
     .addEdge("fallback_generate", END);
 
   return workflow.compile();
@@ -563,45 +841,98 @@ export const queryAgent = buildGraph();
 
 // ─── DOMAIN RELEVANCE CHECK ───
 
+// Fast regex patterns that are CLEARLY off-topic regardless of product.
+// Only triggers for generic programming tasks with no possible doc connection.
+const OFFTOPIC_PATTERNS =
+  /\b(recipe|cook|food|weather|forecast|sports|score|movie|film|song|lyrics|translate|poem|story|joke|calculate\s+\d|solve\s+this\s+(equation|math)|write\s+(a\s+)?(bubble|merge|quick|insertion)\s+sort|two\s*sum|fibonacci|factorial|palindrome)\b/i;
+
+// Doc-related signals — if any of these are present, skip LLM call entirely.
+const DOC_SIGNALS =
+  /\b(how|why|what|configure|setup|install|error|api|sdk|deploy|integrate|use|enable|disable|debug|fix|migrate|upgrade|example|code|snippet)\b/i;
+
 export async function isDomainRelevant(
   query: string,
   productName: string,
+  chatMessages?: Array<Record<string, unknown>>,
 ): Promise<{ relevant: boolean; reason: string }> {
-  const model = new ChatGroq({
-    model: "llama-3.1-8b-instant",
-    temperature: 0,
-  });
+  const q = query.toLowerCase();
+
+  // Fast pass: clearly a doc/tech question → skip LLM entirely
+  if (DOC_SIGNALS.test(q)) {
+    return { relevant: true, reason: "fast-pass: doc signal detected" };
+  }
+
+  // Fast fail: clearly off-topic → skip LLM entirely
+  if (OFFTOPIC_PATTERNS.test(q)) {
+    return { relevant: false, reason: "fast-fail: off-topic pattern matched" };
+  }
+
+  // Follow-up heuristic: short ambiguous messages in an ongoing conversation
+  // (e.g. "give me an example", "what about sources", "ok try it") are almost
+  // always references to the previous answer — treat them as relevant.
+  const isShortFollowUp =
+    chatMessages && chatMessages.length >= 2 && query.trim().length < 80;
+  if (isShortFollowUp) {
+    return { relevant: true, reason: "follow-up in ongoing conversation" };
+  }
+
+  // Ambiguous — use small LLM to decide, with recent context if available
+  const smallProvider = (process.env.SMALL_MODEL_PROVIDER ||
+    "groq") as ModelProvider;
+  const smallModelId = process.env.SMALL_MODEL_ID || "llama-3.1-8b-instant";
+
+  // Build a brief conversation snippet so the LLM knows what the user is referring to
+  let recentContext = "";
+  if (chatMessages && chatMessages.length > 0) {
+    const recent = chatMessages.slice(-3);
+    recentContext = recent
+      .map((m) => {
+        const role = (m.role as string) === "assistant" ? "Assistant" : "User";
+        const content =
+          typeof m.content === "string"
+            ? m.content
+            : (
+                m.parts as Array<{ type: string; text?: string }> | undefined
+              )?.find((p) => p.type === "text")?.text || "";
+        return `${role}: ${content.slice(0, 120)}`;
+      })
+      .join("\n");
+  }
 
   try {
-    const response = await model.invoke([
-      new SystemMessage(
-        `You are a query classifier for a documentation chatbot. The user is currently in a workspace for "${productName}".
+    const response = await invokeModel(
+      smallProvider,
+      [
+        {
+          role: "system",
+          content: `You are a query classifier for a documentation chatbot. The user is in a workspace for "${productName}".
 
 Determine if the query could POSSIBLY be answered using ${productName} documentation.
+Reply ONLY with JSON: {"relevant": true/false, "reason": "brief reason"}
 
-Reply with ONLY a JSON object: {"relevant": true/false, "reason": "brief reason"}
+Rules — default to relevant: true when uncertain:
+- Anything about ${productName} features, API, config, setup, pricing → true
+- Integrating ${productName} with any framework or tool → true
+- Follow-up questions referencing a prior answer → true
+- Generic programming algorithms with no connection to ${productName} → false
+- Non-technical questions (recipes, weather, sports) → false`,
+        },
+        {
+          role: "user",
+          content: recentContext
+            ? `Recent conversation:\n${recentContext}\n\nNew message: ${query}`
+            : query,
+        },
+      ],
+      smallModelId,
+    );
 
-Rules — be GENEROUS, default to relevant: true:
-- Questions about ${productName} features, API, setup, pricing, configuration → relevant: true
-- Questions about integrating ${productName} with ANY framework or tool (Next.js, React, Python, etc.) → relevant: true
-- Questions about webhooks, SDKs, billing, checkout, subscriptions in context of ${productName} → relevant: true
-- Implementation/code/setup questions (e.g. "webhook code for next js", "how to install next js") → relevant: true (the user is in ${productName} workspace, so they mean ${productName})
-- ONLY mark false for questions that are completely disconnected from ${productName} (e.g., general programming algorithms like "write a C++ two sum", explaining unrelated concepts like "CSS flexbox", or non-technical questions like "recipe for pancakes")
-- When in doubt → relevant: true`,
-      ),
-      new HumanMessage(query),
-    ]);
-
-    const content =
-      typeof response.content === "string"
-        ? response.content
-        : JSON.stringify(response.content);
-    const jsonMatch = content.match(/\{[\s\S]*?\}/);
+    const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       return JSON.parse(jsonMatch[0]);
     }
   } catch {
-    // If classification fails, assume relevant to avoid false rejections
+    // Fail open — assume relevant to avoid false rejections
   }
   return {
     relevant: true,
@@ -619,30 +950,30 @@ export async function runQueryAgent(
   isPro: boolean,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onStream?: (event: any) => void,
+  chatHistory: { role: string; content: string }[] = [],
+  chatSummary: string = "",
+  preloadedResults: import("../pinecone").SearchResult[] = [],
 ) {
   const startTime = Date.now();
   console.log(`\n🤖 [LangGraph] ========== AGENT START ==========`);
+  if (chatHistory.length > 0) {
+    console.log(`   💬 Chat history: ${chatHistory.length} recent messages`);
+  }
+  if (chatSummary) {
+    console.log(`   📝 Chat summary: ${chatSummary.length} chars`);
+  }
+  if (preloadedResults.length > 0) {
+    console.log(
+      `   ⚡ Preloaded: ${preloadedResults.length} chunks (skip retrieve+rerank)`,
+    );
+  }
 
   if (onStream) {
     onStream({ type: "agent_start", runId: docSourceId });
   }
 
-  // ── Domain guard ──
-  const domainCheck = await isDomainRelevant(query, productName);
-  if (!domainCheck.relevant) {
-    const message = `This workspace is specifically for **${productName}** documentation. I can only answer questions related to ${productName}.\n\nTo discuss other topics like ${domainCheck.reason}, please create a separate workspace for that documentation.`;
-
-    if (onStream) {
-      onStream({ type: "text", content: message });
-      onStream({ type: "finish", sources: [] });
-    }
-    return {
-      answer: message,
-      sources: [],
-      confidence: "high" as const,
-      usedWebFallback: false,
-    };
-  }
+  // Domain guard already ran in route.ts before RAG search.
+  // No need to repeat it here.
 
   const initialState = createInitialState(
     query,
@@ -650,6 +981,9 @@ export async function runQueryAgent(
     docsSiteUrl,
     productName,
     isPro,
+    chatHistory,
+    chatSummary,
+    preloadedResults,
   );
 
   console.log(
@@ -695,46 +1029,8 @@ export async function runQueryAgent(
     );
   }
 
-  let finalAnswer = result.answer || "No answer generated.";
-  let finalSources = result.sources || [];
-
-  if (!result.finished && result.messages && result.messages.length > 0) {
-    const lastAIMessage = [...result.messages]
-      .reverse()
-      .find(
-        (m: BaseMessage) =>
-          m._getType() === "ai" && !(m as AIMessage).tool_calls?.length,
-      );
-    if (lastAIMessage) {
-      const content = lastAIMessage.content;
-      if (typeof content === "string" && content.trim()) {
-        finalAnswer = `⚠️ **Note**: This answer is based on web search results, not indexed documentation.\n\n${content}`;
-      }
-    }
-
-    const toolMessages = result.messages.filter(
-      (m: BaseMessage) => m._getType() === "tool",
-    );
-    const webSources: string[] = [];
-    for (const tm of toolMessages) {
-      try {
-        const toolContent = typeof tm.content === "string" ? tm.content : "";
-        const parsed = JSON.parse(toolContent);
-        if (parsed.scrapedPages) {
-          for (const page of parsed.scrapedPages) {
-            if (page.url && !webSources.includes(page.url)) {
-              webSources.push(page.url);
-            }
-          }
-        }
-      } catch {
-        // Ignore non-JSON tool messages
-      }
-    }
-    if (webSources.length > 0) {
-      finalSources = webSources;
-    }
-  }
+  const finalAnswer = result.answer || "No answer generated.";
+  const finalSources = result.sources || [];
 
   if (onStream) {
     onStream({ type: "text", content: finalAnswer });

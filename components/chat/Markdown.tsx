@@ -153,17 +153,23 @@ export function Markdown({ content, className }: MarkdownProps) {
             <li className="text-neutral-300">{children}</li>
           ),
 
-          // Links
-          a: ({ href, children }) => (
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
-            >
-              {children}
-            </a>
-          ),
+          // Links — validate protocol to prevent javascript: XSS (#25 fix)
+          a: ({ href, children }) => {
+            // Only allow safe protocols; neutralise anything else (javascript:, data:, etc.)
+            const safePrefixes = ["https://", "http://", "/", "#", "mailto:"];
+            const safeHref =
+              href && safePrefixes.some((p) => href.startsWith(p)) ? href : "#";
+            return (
+              <a
+                href={safeHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+              >
+                {children}
+              </a>
+            );
+          },
 
           // Inline code or code blocks
           // eslint-disable-next-line @typescript-eslint/no-unused-vars

@@ -747,3 +747,21 @@ code {
 .hljs-section {
   color: #64b5f6;
 }
+
+/* Hovering/Floating Text Effect */
+@keyframes text-hover-effect {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+    filter: drop-shadow(0 0 15px rgba(255, 255, 255, 0.05));
+    opacity: 0.9;
+  }
+  50% {
+    transform: translateY(-5px) scale(1.02);
+    filter: drop-shadow(0 0 25px rgba(255, 255, 255, 0.2));
+    opacity: 1;
+  }
+}
+
+.animate-text-hover {
+  animation: text-hover-effect 4s ease-in-out infinite;
+}

@@ -8,6 +8,9 @@ import {
   CheckCircle,
   RefreshCw,
   AlertTriangle,
+  RefreshCcw,
+  RotateCcw,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -25,7 +28,11 @@ interface WorkspaceCardProps {
   documentCount?: number;
   chunkCount?: number;
   lastIndexedAt?: string;
-  onStartIndexing?: () => void;
+  lastChangeAt?: string | null;
+  changeDescription?: string | null;
+  lastSeenChangeAt?: string | null;
+  canResume?: boolean;
+  onStartIndexing?: () => void | Promise<void>;
 }
 
 // Helper to check if status is an indexing status
@@ -43,10 +50,15 @@ export function WorkspaceCard({
   documentCount: initialDocumentCount = 0,
   chunkCount: initialChunkCount = 0,
   lastIndexedAt,
+  lastChangeAt,
+  changeDescription,
+  lastSeenChangeAt,
+  canResume = false,
   onStartIndexing,
 }: WorkspaceCardProps) {
   const [reindexing, setReindexing] = useState(false);
   const [reindexError, setReindexError] = useState<string | null>(null);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
   // Use polling hook for real-time status
   const {
@@ -63,6 +75,33 @@ export function WorkspaceCard({
   const statusMessage = dynamicStatusMessage || initialStatusMessage;
   const documentCount = dynamicDocumentCount ?? initialDocumentCount;
   const chunkCount = dynamicChunkCount ?? initialChunkCount;
+
+  // Banner: show if lastChangeAt is newer than lastSeenChangeAt
+  const showChangeBanner =
+    !bannerDismissed &&
+    status === "ready" &&
+    lastChangeAt &&
+    (!lastSeenChangeAt || new Date(lastChangeAt) > new Date(lastSeenChangeAt));
+
+  // Relative time helper
+  function timeAgo(dateStr: string): string {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  }
+
+  const handleDismissBanner = async () => {
+    setBannerDismissed(true);
+    try {
+      await fetch(`/api/workspaces/${id}/seen`, { method: "POST" });
+    } catch {
+      // Fire-and-forget — UI already updated
+    }
+  };
 
   // Handler for re-indexing
   const handleReindex = async () => {
@@ -99,12 +138,12 @@ export function WorkspaceCard({
     }
   };
 
-  // Handler to trigger optimistic polling + API call
+  // Handler to trigger API call THEN start polling (order matters!)
   const handleStartIndexing = async () => {
-    startPolling();
     if (onStartIndexing) {
-      onStartIndexing();
+      await onStartIndexing(); // Wait for API to update DB status first
     }
+    startPolling(); // Now polling will see the new "pending" status, not stale "error"
   };
 
   const statusConfig: Record<
@@ -189,6 +228,27 @@ export function WorkspaceCard({
           <span className={config.color}>{config.label}</span>
         </div>
       </div>
+
+      {/* Doc-changed banner */}
+      {showChangeBanner && (
+        <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-indigo-500/20 bg-indigo-500/10 px-3 py-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <RefreshCcw className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+            <span className="text-xs text-indigo-300 truncate">
+              Docs updated
+              {changeDescription && ` · ${changeDescription}`}
+              {lastChangeAt && ` · ${timeAgo(lastChangeAt)}`}
+            </span>
+          </div>
+          <button
+            onClick={handleDismissBanner}
+            className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-200 shrink-0"
+          >
+            Got it
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
 
       {/* Status Message */}
       {(isIndexingStatus(status) || status === "error") && statusMessage && (
@@ -278,9 +338,17 @@ export function WorkspaceCard({
         ) : status === "error" ? (
           <Button
             onClick={handleStartIndexing}
-            className="flex-1 bg-red-500/20 hover:bg-red-500/30 text-red-400"
+            className={`flex-1 gap-2 ${canResume ? "bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-400" : "bg-red-500/20 hover:bg-red-500/30 text-red-400"}`}
+            title={canResume ? "Resume from last checkpoint (skips completed steps)" : "Retry indexing from scratch"}
           >
-            Retry
+            {canResume ? (
+              <>
+                <RotateCcw className="w-3.5 h-3.5" />
+                Resume
+              </>
+            ) : (
+              "Retry"
+            )}
           </Button>
         ) : isIndexingStatus(status) ? (
           <Button

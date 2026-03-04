@@ -1,16 +1,22 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, FolderOpen, Zap, Crown } from "lucide-react";
+import { Plus, FolderOpen, Zap, Crown, BookOpen, LayoutGrid } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { WorkspaceCard } from "./WorkspaceCard";
 import { AddWorkspaceModal } from "./AddWorkspaceModal";
+import { DocCatalog } from "./DocCatalog";
+import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
+
+type ActiveTab = "my" | "browse";
 
 interface Workspace {
   id: string;
   name: string;
   docSourceId: string;
+  lastSeenChangeAt?: string | null;
+  canResume?: boolean;
   DocSource: {
     id: string;
     productName: string;
@@ -19,6 +25,8 @@ interface Workspace {
     documentCount: number;
     chunkCount: number;
     lastIndexedAt: string | null;
+    lastChangeAt?: string | null;
+    changeDescription?: string | null;
   };
 }
 
@@ -36,6 +44,7 @@ export function WorkspacePanel() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [usage, setUsage] = useState<PlanUsage | null>(null);
+  const [activeTab, setActiveTab] = useState<ActiveTab>("my");
 
   const fetchWorkspaces = async () => {
     try {
@@ -90,11 +99,13 @@ export function WorkspacePanel() {
   return (
     <div className="flex-1 overflow-auto p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-5">
         <div>
           <div className="flex items-center gap-3 mb-1">
-            <h1 className="text-xl font-bold text-white">All Workspaces</h1>
-            {usage && (
+            <h1 className="text-xl font-bold text-white">
+              {activeTab === "my" ? "My Workspaces" : "Browse Docs"}
+            </h1>
+            {usage && activeTab === "my" && (
               <span
                 className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${
                   usage.isPro
@@ -112,98 +123,152 @@ export function WorkspacePanel() {
             )}
           </div>
           <p className="text-sm text-neutral-400">
-            {usage
-              ? `${usage.count} / ${usage.limit} workspaces used`
-              : "Your indexed documentation sources"}
+            {activeTab === "my"
+              ? usage
+                ? `${usage.count} / ${usage.limit} workspaces used`
+                : "Your indexed documentation sources"
+              : "Already-indexed docs — start chatting instantly, no setup needed"}
           </p>
         </div>
-        <Button
-          onClick={() => setShowModal(true)}
-          disabled={!canAddWorkspace}
-          className={
-            canAddWorkspace
-              ? "bg-emerald-600 hover:bg-emerald-500 text-white gap-2"
-              : "bg-white/5 text-neutral-500 cursor-not-allowed gap-2"
-          }
-        >
-          <Plus className="w-4 h-4" />
-          {canAddWorkspace ? "Add Workspace" : "Limit Reached"}
-        </Button>
-      </div>
 
-      {/* Limit reached banner */}
-      {usage?.isReached && !usage?.isPro && (
-        <div className="mb-6 p-4 rounded-xl bg-amber-500/5 border border-amber-500/15 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-amber-500/20 rounded-lg flex items-center justify-center">
-              <Zap className="w-4 h-4 text-amber-400" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-white">
-                Workspace limit reached
-              </p>
-              <p className="text-xs text-neutral-400">
-                Upgrade to Pro to add more documentation sources
-              </p>
-            </div>
-          </div>
-          <Button
-            onClick={() =>
-              window.open(
-                `/api/checkout?products=${process.env.NEXT_PUBLIC_POLAR_PRICE_ID || ""}`,
-                "_self",
-              )
-            }
-            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs"
-          >
-            Upgrade
-          </Button>
-        </div>
-      )}
-
-      {/* Content */}
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-        </div>
-      ) : workspaces.length === 0 ? (
-        <div className="glass-card rounded-2xl p-12 text-center">
-          <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <FolderOpen className="w-8 h-8 text-neutral-500" />
-          </div>
-          <h3 className="text-xl font-semibold text-white mb-2">
-            No workspaces yet
-          </h3>
-          <p className="text-neutral-400 mb-6 max-w-md mx-auto">
-            Add your first documentation source to start chatting with it
-          </p>
+        {activeTab === "my" && (
           <Button
             onClick={() => setShowModal(true)}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white gap-2"
+            disabled={!canAddWorkspace}
+            className={
+              canAddWorkspace
+                ? "bg-emerald-600 hover:bg-emerald-500 text-white gap-2"
+                : "bg-white/5 text-neutral-500 cursor-not-allowed gap-2"
+            }
           >
             <Plus className="w-4 h-4" />
-            Add Your First Workspace
+            {canAddWorkspace ? "Add Workspace" : "Limit Reached"}
           </Button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {workspaces.map((workspace) => (
-            <WorkspaceCard
-              key={workspace.id}
-              id={workspace.id}
-              docSourceId={workspace.docSourceId}
-              name={workspace.name}
-              productName={workspace.DocSource.productName}
-              rootUrl={workspace.DocSource.rootUrl}
-              status={workspace.DocSource.status}
-              documentCount={workspace.DocSource.documentCount}
-              chunkCount={workspace.DocSource.chunkCount}
-              lastIndexedAt={workspace.DocSource.lastIndexedAt || undefined}
-              onStartIndexing={() => handleStartIndexing(workspace.id)}
-            />
-          ))}
-        </div>
+        )}
+      </div>
+
+      {/* Tab switcher */}
+      <div className="flex items-center gap-1 p-1 bg-white/5 rounded-xl border border-white/8 w-fit mb-6">
+        <button
+          onClick={() => setActiveTab("my")}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+            activeTab === "my"
+              ? "bg-white/10 text-white shadow-sm"
+              : "text-neutral-400 hover:text-white",
+          )}
+        >
+          <LayoutGrid className="w-4 h-4" />
+          My Workspaces
+        </button>
+        <button
+          onClick={() => setActiveTab("browse")}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+            activeTab === "browse"
+              ? "bg-white/10 text-white shadow-sm"
+              : "text-neutral-400 hover:text-white",
+          )}
+        >
+          <BookOpen className="w-4 h-4" />
+          Browse Docs
+        </button>
+      </div>
+
+      {/* ── My Workspaces tab ── */}
+      {activeTab === "my" && (
+        <>
+          {/* Limit reached banner */}
+          {usage?.isReached && !usage?.isPro && (
+            <div className="mb-6 p-4 rounded-xl bg-amber-500/5 border border-amber-500/15 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-amber-500/20 rounded-lg flex items-center justify-center">
+                  <Zap className="w-4 h-4 text-amber-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-white">
+                    Workspace limit reached
+                  </p>
+                  <p className="text-xs text-neutral-400">
+                    Upgrade to Pro to add more documentation sources
+                  </p>
+                </div>
+              </div>
+              <Button
+                onClick={() =>
+                  window.open(
+                    `/api/checkout?products=${process.env.NEXT_PUBLIC_POLAR_PRICE_ID || ""}`,
+                    "_self",
+                  )
+                }
+                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs"
+              >
+                Upgrade
+              </Button>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="flex items-center justify-center py-20">
+              <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : workspaces.length === 0 ? (
+            <div className="glass-card rounded-2xl p-12 text-center">
+              <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <FolderOpen className="w-8 h-8 text-neutral-500" />
+              </div>
+              <h3 className="text-xl font-semibold text-white mb-2">
+                No workspaces yet
+              </h3>
+              <p className="text-neutral-400 mb-2 max-w-md mx-auto">
+                Add your first documentation source to start chatting with it
+              </p>
+              <p className="text-neutral-500 text-sm mb-6">
+                Or{" "}
+                <button
+                  onClick={() => setActiveTab("browse")}
+                  className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
+                >
+                  browse already-indexed docs
+                </button>{" "}
+                and start chatting instantly
+              </p>
+              <Button
+                onClick={() => setShowModal(true)}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Add Your First Workspace
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {workspaces.map((workspace) => (
+                <WorkspaceCard
+                  key={workspace.id}
+                  id={workspace.id}
+                  docSourceId={workspace.docSourceId}
+                  name={workspace.name}
+                  productName={workspace.DocSource.productName}
+                  rootUrl={workspace.DocSource.rootUrl}
+                  status={workspace.DocSource.status}
+                  documentCount={workspace.DocSource.documentCount}
+                  chunkCount={workspace.DocSource.chunkCount}
+                  lastIndexedAt={workspace.DocSource.lastIndexedAt || undefined}
+                  lastChangeAt={workspace.DocSource.lastChangeAt}
+                  changeDescription={workspace.DocSource.changeDescription}
+                  lastSeenChangeAt={workspace.lastSeenChangeAt}
+                  canResume={workspace.canResume}
+                  onStartIndexing={() => handleStartIndexing(workspace.id)}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
+
+      {/* ── Browse Docs tab ── */}
+      {activeTab === "browse" && <DocCatalog />}
 
       {/* Modal */}
       <AddWorkspaceModal

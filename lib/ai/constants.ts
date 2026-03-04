@@ -1,19 +1,8 @@
-// ─── TELEMETRY-ONLY THRESHOLDS ───
-// These thresholds are used for logging and telemetry.
-// They do NOT participate in routing decisions.
-// Routing is controlled by the LLM context grader (gradeContextSufficiency).
 export const CONFIDENCE_HIGH_THRESHOLD = 0.35;
 export const CONFIDENCE_MEDIUM_THRESHOLD = 0.2;
 
-// @deprecated — no longer used for routing. Kept for telemetry/logging only.
-export const VECTOR_CONFIDENCE_THRESHOLD = 0.35;
-// @deprecated — no longer used for routing. Kept for telemetry/logging only.
-export const RERANK_LOW_THRESHOLD = 0.15;
-
-// @deprecated — replaced by LLM context grader. Kept for backward compat only.
-export const WEAK_CONTEXT_SCORE_THRESHOLD = 0.25;
-
-export const MAX_AGENT_HOPS = 5;
+// Max web_search_docs calls before force-generating an answer
+export const MAX_AGENT_HOPS = 2;
 
 export function classifyConfidence(
   topScore: number,

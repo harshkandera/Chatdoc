@@ -171,6 +171,13 @@ function ChatContent() {
   );
 }
 
+function ChatContentWithKey() {
+  const searchParams = useSearchParams();
+  const workspaceId = searchParams.get("workspace");
+  const view = searchParams.get("view");
+  return <ChatContent key={`${workspaceId ?? "none"}-${view ?? "chat"}`} />;
+}
+
 export default function ChatPage() {
   return (
     <Suspense
@@ -180,7 +187,7 @@ export default function ChatPage() {
         </div>
       }
     >
-      <ChatContent />
+      <ChatContentWithKey />
     </Suspense>
   );
 }

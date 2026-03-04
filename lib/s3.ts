@@ -4,6 +4,7 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   ListObjectsV2Command,
+  HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 
 const s3 = new S3Client({
@@ -86,6 +87,22 @@ export async function deletePrefix(prefix: string): Promise<void> {
 }
 
 /**
+ * Check if an S3 key exists without downloading the object.
+ * Only returns false for genuine 404s — other errors (throttling, auth) are re-thrown
+ * so callers don't silently fall back to a full re-scrape on transient AWS errors.
+ */
+export async function s3KeyExists(key: string): Promise<boolean> {
+  try {
+    await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+    return true;
+  } catch (err: unknown) {
+    const name = (err as { name?: string })?.name;
+    if (name === "NotFound" || name === "NoSuchKey") return false;
+    throw err;
+  }
+}
+
+/**
  * Generate the S3 key prefix for a given doc source indexing job.
  */
 export function indexingPrefix(docSourceId: string): string {
@@ -104,4 +121,29 @@ export function pagesKey(docSourceId: string): string {
  */
 export function chunksKey(docSourceId: string): string {
   return `${indexingPrefix(docSourceId)}chunks.json`;
+}
+
+/**
+ * Generate the S3 prefix for discovered pages (web search fallback).
+ * Kept separate from indexing/ to avoid collisions with the main pipeline.
+ */
+export function discoveredPrefix(docSourceId: string): string {
+  return `discovered/${docSourceId}/`;
+}
+
+export function discoveredPagesKey(docSourceId: string): string {
+  return `${discoveredPrefix(docSourceId)}pages.json`;
+}
+
+export function discoveredChunksKey(docSourceId: string): string {
+  return `${discoveredPrefix(docSourceId)}chunks.json`;
+}
+
+/**
+ * S3 key for pages kept alive for the async KG build.
+ * Uses a separate "kg/" prefix so the main indexing cleanup (which deletes
+ * "indexing/") never touches these. The KG function deletes the key after use.
+ */
+export function kgPagesKey(docSourceId: string): string {
+  return `kg/${docSourceId}/pages.json`;
 }

@@ -44,7 +44,7 @@ export function CTASection() {
             <div className="flex flex-col md:flex-row items-center gap-8">
               {/* Show Sign In when signed out */}
               <SignedOut>
-                <SignInButton mode="modal" forceRedirectUrl="/dashboard">
+                <SignInButton mode="modal" forceRedirectUrl="/chat">
                   <button className="shiny-cta cursor-pointer">
                     <span>Get Started Free</span>
                   </button>
@@ -53,7 +53,7 @@ export function CTASection() {
 
               {/* Show Dashboard link when signed in */}
               <SignedIn>
-                <Link href="/dashboard" className="shiny-cta">
+                <Link href="/chat" className="shiny-cta">
                   <span>Go to Dashboard</span>
                 </Link>
               </SignedIn>

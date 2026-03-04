@@ -1,5 +1,64 @@
 import { prisma } from "@/lib/db/prisma";
+import { NullableJsonNullValueInput } from "@/app/generated/prisma/internal/prismaNamespace";
 import crypto from "crypto";
+import { publishIndexingStatus } from "@/lib/redis";
+
+/* -------------------------------------------------------
+   Resumable Indexing Checkpoint
+------------------------------------------------------- */
+
+export type IndexCheckpoint = {
+  jobType?: "index" | "reindex";
+  pagesS3Key?: string;
+  pageCount?: number;
+  chunksS3Key?: string;
+  chunkCount?: number;
+  completedBatches?: number[];
+  kgBuilt?: boolean; // true once build-knowledge-graph step completes
+  // reindex-specific
+  changedCount?: number;
+  unchangedCount?: number;
+  startedAt?: string;
+};
+
+const CHECKPOINT_TTL_HOURS = Number(
+  process.env.INDEXING_CHECKPOINT_TTL_HOURS ?? 24,
+);
+
+export function isCheckpointValid(cp: IndexCheckpoint | null): boolean {
+  if (!cp?.startedAt) return false;
+  const ageHours =
+    (Date.now() - new Date(cp.startedAt).getTime()) / (1000 * 60 * 60);
+  return ageHours < CHECKPOINT_TTL_HOURS;
+}
+
+export async function getIndexCheckpoint(
+  docSourceId: string,
+): Promise<IndexCheckpoint | null> {
+  const ds = await prisma.docSource.findUnique({
+    where: { id: docSourceId },
+    select: { indexCheckpoint: true },
+  });
+  return (ds?.indexCheckpoint as IndexCheckpoint) ?? null;
+}
+
+export async function saveIndexCheckpoint(
+  docSourceId: string,
+  patch: Partial<IndexCheckpoint>,
+) {
+  const cp = await getIndexCheckpoint(docSourceId);
+  await prisma.docSource.update({
+    where: { id: docSourceId },
+    data: { indexCheckpoint: { ...(cp ?? {}), ...patch } },
+  });
+}
+
+export async function clearIndexCheckpoint(docSourceId: string) {
+  await prisma.docSource.update({
+    where: { id: docSourceId },
+    data: { indexCheckpoint: NullableJsonNullValueInput.DbNull },
+  });
+}
 
 /* -------------------------------------------------------
    Helpers
@@ -170,7 +229,8 @@ export async function updateDocSourceStatus(
         statusMessage: options?.message ?? null,
         ...(status === "ready" && {
           lastIndexedAt: new Date(),
-          statusMessage: null,
+          // intentionally NOT clearing statusMessage here —
+          // callers pass the completion message (e.g. "Re-index complete: 5 pages updated")
         }),
         ...(status === "error" &&
           options?.message && {
@@ -186,6 +246,17 @@ export async function updateDocSourceStatus(
     });
 
     return tx.docSource.findUnique({ where: { id } });
+  }).then(async (updated) => {
+    // Publish to Redis Pub/Sub after DB commit — non-blocking
+    if (updated) {
+      await publishIndexingStatus(id, {
+        status: updated.status,
+        statusMessage: updated.statusMessage ?? null,
+        documentCount: updated.documentCount ?? null,
+        chunkCount: updated.chunkCount ?? null,
+      });
+    }
+    return updated;
   });
 }
 
@@ -229,5 +300,49 @@ export async function getUserWorkspaces(userId: string) {
       _count: { select: { Chat: true } },
     },
     orderBy: { updatedAt: "desc" },
+  });
+}
+
+/* -------------------------------------------------------
+   Classification & Change Metadata
+------------------------------------------------------- */
+
+export async function updateDocSourceClassification(
+  id: string,
+  data: {
+    changeStrategy: string;
+    rssUrl?: string | null;
+    sitemapUrl?: string | null;
+    pollIntervalHours: number;
+    version?: string | null;
+  },
+) {
+  return prisma.docSource.update({
+    where: { id },
+    data: {
+      changeStrategy: data.changeStrategy,
+      rssUrl: data.rssUrl ?? null,
+      sitemapUrl: data.sitemapUrl ?? null,
+      pollIntervalHours: data.pollIntervalHours,
+      ...(data.version !== undefined && { version: data.version }),
+    },
+  });
+}
+
+export async function updateDocSourceChangeMetadata(
+  id: string,
+  data: {
+    lastChangeAt: Date;
+    lastChangeType: string;
+    changeDescription: string;
+  },
+) {
+  return prisma.docSource.update({
+    where: { id },
+    data: {
+      lastChangeAt: data.lastChangeAt,
+      lastChangeType: data.lastChangeType,
+      changeDescription: data.changeDescription,
+    },
   });
 }
