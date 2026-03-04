@@ -30,6 +30,7 @@ import {
   pagesKey,
   chunksKey,
 } from "@/lib/s3";
+import { startDocsCrawl, fetchCrawlPages } from "./scrape";
 
 export interface IndexProgress {
   stage: "scraping" | "chunking" | "embedding" | "storing" | "complete";
@@ -521,6 +522,98 @@ export async function embedAndStoreBatch(
  */
 export async function cleanupS3(docSourceId: string): Promise<void> {
   await deletePrefix(indexingPrefix(docSourceId));
+}
+
+/* -------------------------------------------------------
+   Async-crawl helpers (used by Inngest polling pattern)
+   These replace the blocking crawlDocs() calls that caused
+   Vercel FUNCTION_INVOCATION_TIMEOUT errors.
+------------------------------------------------------- */
+
+/**
+ * Start a Firecrawl crawl job and return the job ID.
+ * The actual crawling happens on the Firecrawl side — this returns immediately.
+ */
+export async function startScrapeJob(docSourceId: string): Promise<string> {
+  const docSource = await prisma.docSource.findUnique({ where: { id: docSourceId } });
+  if (!docSource) throw new Error("DocSource not found");
+  return startDocsCrawl(docSource.rootUrl);
+}
+
+/**
+ * Fetch completed crawl pages and store them in S3.
+ * Call this after checkCrawlComplete() returns true.
+ */
+export async function finishScrapeAndStore(
+  docSourceId: string,
+  crawlId: string,
+): Promise<{ pageCount: number; s3Key: string }> {
+  const pages = await fetchCrawlPages(crawlId);
+  const key = pagesKey(docSourceId);
+  await uploadJSON(key, pages);
+  return { pageCount: pages.length, s3Key: key };
+}
+
+/**
+ * Fetch completed crawl pages, compare content hashes, delete stale
+ * Pinecone vectors + DB chunks, and store only changed pages in S3.
+ * Call this after checkCrawlComplete() returns true (for re-index).
+ */
+export async function finishSmartScrapeAndStore(
+  docSourceId: string,
+  crawlId: string,
+): Promise<{
+  pageCount: number;
+  changedCount: number;
+  unchangedCount: number;
+  s3Key: string;
+  failedUrls: string[];
+}> {
+  // Load existing content hashes grouped by URL
+  const existingChunks = await prisma.chunk.findMany({
+    where: { docSourceId },
+    select: { url: true, contentHash: true, vectorId: true },
+  });
+  const existingByUrl = new Map<string, { hashes: Set<string>; vectorIds: string[] }>();
+  for (const chunk of existingChunks) {
+    const entry = existingByUrl.get(chunk.url) ?? { hashes: new Set<string>(), vectorIds: [] };
+    if (chunk.contentHash) entry.hashes.add(chunk.contentHash);
+    entry.vectorIds.push(chunk.vectorId);
+    existingByUrl.set(chunk.url, entry);
+  }
+
+  const allPages = await fetchCrawlPages(crawlId);
+  const changedPages: Page[] = [];
+  let unchangedCount = 0;
+
+  for (const page of allPages) {
+    const contentHash = createHash("sha256").update(page.content).digest("hex");
+    const existing = existingByUrl.get(page.url);
+    if (existing && existing.hashes.has(contentHash)) {
+      unchangedCount++;
+    } else {
+      changedPages.push(page);
+      if (existing) {
+        const { pineconeIndex } = await import("../pinecone");
+        if (existing.vectorIds.length > 0) {
+          await pineconeIndex.deleteMany(existing.vectorIds);
+        }
+        await prisma.chunk.deleteMany({ where: { docSourceId, url: page.url } });
+      }
+    }
+  }
+
+  const key = pagesKey(docSourceId);
+  await uploadJSON(key, changedPages);
+  await prisma.docSource.update({ where: { id: docSourceId }, data: { failedUrls: [] } });
+
+  return {
+    pageCount: allPages.length,
+    changedCount: changedPages.length,
+    unchangedCount,
+    s3Key: key,
+    failedUrls: [],
+  };
 }
 
 /**

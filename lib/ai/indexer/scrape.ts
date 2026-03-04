@@ -73,6 +73,63 @@ async function validateUrl(url: string): Promise<void> {
   }
 }
 
+// ─── Async Crawl API (Inngest-safe, no Vercel timeout) ────────────────────────
+
+function buildCrawlOptions(rootUrl: string) {
+  const rootUrlObj = new URL(rootUrl);
+  const basePath = rootUrlObj.pathname.split("/").slice(0, 2).join("/");
+  const hasBasePath = basePath && basePath !== "/";
+  const escapedBasePath = hasBasePath
+    ? basePath.replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+    : null;
+  return {
+    limit: 500,
+    allowExternalLinks: false,
+    ...(escapedBasePath ? { includePaths: [`${escapedBasePath}(/.*)?`] } : {}),
+    scrapeOptions: { formats: ["markdown"] as ["markdown"] },
+  };
+}
+
+/**
+ * Start a Firecrawl crawl asynchronously and return the job ID.
+ * Each call returns immediately — use checkCrawlComplete() + fetchCrawlPages()
+ * via Inngest step.sleep polling to avoid Vercel's 300 s timeout.
+ */
+export async function startDocsCrawl(rootUrl: string): Promise<string> {
+  await validateUrl(rootUrl);
+  const response = await firecrawl.startCrawl(rootUrl, buildCrawlOptions(rootUrl));
+  return response.id;
+}
+
+/**
+ * Returns true when the crawl is done. Throws on failure/cancellation.
+ * Safe to call repeatedly; fetches only status (no page data).
+ */
+export async function checkCrawlComplete(crawlId: string): Promise<boolean> {
+  const job = await firecrawl.getCrawlStatus(crawlId, {
+    autoPaginate: false,
+    maxResults: 0,
+  });
+  if (job.status === "failed" || job.status === "cancelled") {
+    throw new Error(`Firecrawl crawl ${crawlId} ended with status: ${job.status}`);
+  }
+  return job.status === "completed";
+}
+
+/**
+ * Download all scraped pages for a completed crawl.
+ * autoPaginate=true (default) handles Firecrawl cursor pagination automatically.
+ */
+export async function fetchCrawlPages(crawlId: string): Promise<ScrapedPage[]> {
+  const job = await firecrawl.getCrawlStatus(crawlId);
+  return job.data.map((doc) => ({
+    url: doc.metadata?.url ?? "",
+    title: doc.metadata?.title || extractTitleFromMarkdown(doc.markdown ?? ""),
+    content: cleanMarkdown(doc.markdown ?? ""),
+    links: (doc as unknown as { links?: string[] }).links ?? [],
+  }));
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 // Scrape a single page via Firecrawl

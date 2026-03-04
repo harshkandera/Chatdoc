@@ -9,6 +9,7 @@ import { publishIndexingStatus } from "@/lib/redis";
 
 export type IndexCheckpoint = {
   jobType?: "index" | "reindex";
+  crawlJobId?: string; // Firecrawl async job ID — persists across retries
   pagesS3Key?: string;
   pageCount?: number;
   chunksS3Key?: string;

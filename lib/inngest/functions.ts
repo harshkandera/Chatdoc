@@ -1,13 +1,15 @@
 import { inngest } from "./client";
 import { NullableJsonNullValueInput } from "@/app/generated/prisma/internal/prismaNamespace";
 import {
-  scrapeAndStore,
   chunkAndStore,
   embedAndStoreBatch,
   cleanupS3,
-  smartScrapeAndStore,
   embedAndStoreBatchWithHash,
+  startScrapeJob,
+  finishScrapeAndStore,
+  finishSmartScrapeAndStore,
 } from "@/lib/ai/indexer";
+import { checkCrawlComplete } from "@/lib/ai/indexer/scrape";
 import {
   updateDocSourceStatus,
   updateDocSourceChangeMetadata,
@@ -164,22 +166,46 @@ export const indexDocSourceFunction = inngest.createFunction(
       });
     });
 
-    // Step 3: Scrape all pages → store in S3 (returns only metadata)
-    const scrapeResult = await step.run("scrape-and-store", async () => {
+    // Step 3a: Start async Firecrawl crawl (returns immediately with a job ID)
+    const crawlId = await step.run("start-crawl", async () => {
+      const cp = await getIndexCheckpoint(docSourceId);
+      // Reuse crawlJobId from a previous attempt if the checkpoint is still valid
+      if (isCheckpointValid(cp) && cp?.jobType === "index" && cp?.crawlJobId) {
+        console.log(`[DocSource:${docSourceId}] Resuming — reusing Firecrawl job ${cp.crawlJobId}`);
+        return cp.crawlJobId;
+      }
+      await saveIndexCheckpoint(docSourceId, {
+        jobType: "index",
+        startedAt: new Date().toISOString(),
+      });
+      console.log(`[DocSource:${docSourceId}] Starting async Firecrawl crawl...`);
+      const id = await startScrapeJob(docSourceId);
+      await saveIndexCheckpoint(docSourceId, { crawlJobId: id });
+      return id;
+    });
+
+    // Step 3b: Poll every 30 s until Firecrawl finishes (max 20 × 30 s = 10 min)
+    // Each sleep + check is a separate short-lived Inngest step — no Vercel timeout risk.
+    let crawlComplete = false;
+    for (let poll = 0; poll < 40 && !crawlComplete; poll++) {
+      await step.sleep(`poll-crawl-wait-${poll}`, "30s");
+      crawlComplete = await step.run(`poll-crawl-${poll}`, async () => {
+        return checkCrawlComplete(crawlId);
+      });
+    }
+    if (!crawlComplete) {
+      throw new Error(`[DocSource:${docSourceId}] Crawl timed out after 20 minutes`);
+    }
+
+    // Step 3c: Fetch all pages from Firecrawl and upload to S3
+    const scrapeResult = await step.run("fetch-crawl-results", async () => {
       const cp = await getIndexCheckpoint(docSourceId);
       if (isCheckpointValid(cp) && cp?.jobType === "index" && cp?.pagesS3Key && await s3KeyExists(cp.pagesS3Key)) {
         console.log(`[DocSource:${docSourceId}] Resuming — reusing scraped pages from S3`);
         return { s3Key: cp.pagesS3Key, pageCount: cp.pageCount ?? 0 };
       }
-      // Save startedAt + jobType BEFORE the long-running scrape so that:
-      // (a) the TTL clock starts even if scraping is interrupted mid-way, and
-      // (b) the s3OrphanSweeper recognises this as an active job.
-      await saveIndexCheckpoint(docSourceId, {
-        jobType: "index",
-        startedAt: new Date().toISOString(),
-      });
-      console.log(`[DocSource:${docSourceId}] Scraping and storing to S3...`);
-      const result = await scrapeAndStore(docSourceId);
+      console.log(`[DocSource:${docSourceId}] Downloading crawl results and storing to S3...`);
+      const result = await finishScrapeAndStore(docSourceId, crawlId);
       await saveIndexCheckpoint(docSourceId, {
         pagesS3Key: result.s3Key,
         pageCount: result.pageCount,
@@ -400,7 +426,36 @@ export const smartReindexDocSourceFunction = inngest.createFunction(
       });
     });
 
-    // Step 2: Smart scrape — compare hashes, only store changed pages
+    // Step 2a: Start async Firecrawl crawl for re-index
+    const crawlId = await step.run("start-reindex-crawl", async () => {
+      const cp = await getIndexCheckpoint(docSourceId);
+      if (isCheckpointValid(cp) && cp?.jobType === "reindex" && cp?.crawlJobId) {
+        console.log(`[DocSource:${docSourceId}] Resuming reindex — reusing Firecrawl job ${cp.crawlJobId}`);
+        return cp.crawlJobId;
+      }
+      await saveIndexCheckpoint(docSourceId, {
+        jobType: "reindex",
+        startedAt: new Date().toISOString(),
+      });
+      console.log(`[DocSource:${docSourceId}] Starting async Firecrawl crawl for re-index...`);
+      const id = await startScrapeJob(docSourceId);
+      await saveIndexCheckpoint(docSourceId, { crawlJobId: id });
+      return id;
+    });
+
+    // Step 2b: Poll every 30 s until Firecrawl finishes (max 20 × 30 s = 10 min)
+    let crawlComplete = false;
+    for (let poll = 0; poll < 40 && !crawlComplete; poll++) {
+      await step.sleep(`poll-reindex-wait-${poll}`, "30s");
+      crawlComplete = await step.run(`poll-reindex-${poll}`, async () => {
+        return checkCrawlComplete(crawlId);
+      });
+    }
+    if (!crawlComplete) {
+      throw new Error(`[DocSource:${docSourceId}] Re-index crawl timed out after 20 minutes`);
+    }
+
+    // Step 2c: Fetch pages, compare hashes, store only changed pages to S3
     const scrapeResult = await step.run("smart-scrape-and-store", async () => {
       const cp = await getIndexCheckpoint(docSourceId);
       if (
@@ -418,13 +473,8 @@ export const smartReindexDocSourceFunction = inngest.createFunction(
           failedUrls: [] as string[],
         };
       }
-      // Anchor the TTL clock before the long-running scrape
-      await saveIndexCheckpoint(docSourceId, {
-        jobType: "reindex",
-        startedAt: new Date().toISOString(),
-      });
       console.log(`[DocSource:${docSourceId}] Smart scraping (hash compare)...`);
-      const result = await smartScrapeAndStore(docSourceId);
+      const result = await finishSmartScrapeAndStore(docSourceId, crawlId);
       await saveIndexCheckpoint(docSourceId, {
         pagesS3Key: result.s3Key,
         pageCount: result.pageCount,
