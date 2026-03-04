@@ -14,10 +14,24 @@ function getRedis(): Redis {
     throw new Error("REDIS_HOST is not set");
   }
 
+  console.log(`[Redis] connecting to ${host}:${port} (password: ${password ? "set" : "not set"})`);
+
   client = new Redis({ host, port, password, lazyConnect: true });
 
+  client.on("connect", () => {
+    console.log(`[Redis] connected to ${host}:${port}`);
+  });
+
+  client.on("ready", () => {
+    console.log(`[Redis] ready`);
+  });
+
   client.on("error", (err) => {
-    console.error("[Redis] connection error:", err.message);
+    console.error(`[Redis] error: ${err.message}`);
+  });
+
+  client.on("close", () => {
+    console.warn(`[Redis] connection closed`);
   });
 
   return client;

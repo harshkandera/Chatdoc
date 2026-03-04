@@ -8,6 +8,9 @@ import {
   startScrapeJob,
   finishScrapeAndStore,
   finishSmartScrapeAndStore,
+  scrapeSPABatch,
+  combineSPABatches,
+  combineSPABatchesAndSmartStore,
 } from "@/lib/ai/indexer";
 import { checkCrawlComplete } from "@/lib/ai/indexer/scrape";
 import {
@@ -184,34 +187,80 @@ export const indexDocSourceFunction = inngest.createFunction(
       return id;
     });
 
-    // Step 3b: Poll every 30 s until Firecrawl finishes (max 20 × 30 s = 10 min)
+    // Step 3b: Poll every 30 s until Firecrawl finishes (max 40 × 30 s = 20 min)
     // Each sleep + check is a separate short-lived Inngest step — no Vercel timeout risk.
     let crawlComplete = false;
     for (let poll = 0; poll < 40 && !crawlComplete; poll++) {
       await step.sleep(`poll-crawl-wait-${poll}`, "30s");
       crawlComplete = await step.run(`poll-crawl-${poll}`, async () => {
-        return checkCrawlComplete(crawlId);
+        const { done, completed, total } = await checkCrawlComplete(crawlId);
+        if (!done && total > 0) {
+          await inngest.send({
+            name: "docsource/status.updated",
+            data: { docSourceId, status: "scraping", message: `Scraping ${completed}/${total} pages...` },
+          });
+        }
+        return done;
       });
     }
     if (!crawlComplete) {
       throw new Error(`[DocSource:${docSourceId}] Crawl timed out after 20 minutes`);
     }
 
-    // Step 3c: Fetch all pages from Firecrawl and upload to S3
-    const scrapeResult = await step.run("fetch-crawl-results", async () => {
+    // Step 3c: Fetch all pages from Firecrawl and upload to S3 (or signal SPA mode)
+    const fetchResult = await step.run("fetch-crawl-results", async () => {
       const cp = await getIndexCheckpoint(docSourceId);
       if (isCheckpointValid(cp) && cp?.jobType === "index" && cp?.pagesS3Key && await s3KeyExists(cp.pagesS3Key)) {
         console.log(`[DocSource:${docSourceId}] Resuming — reusing scraped pages from S3`);
         return { s3Key: cp.pagesS3Key, pageCount: cp.pageCount ?? 0 };
       }
       console.log(`[DocSource:${docSourceId}] Downloading crawl results and storing to S3...`);
-      const result = await finishScrapeAndStore(docSourceId, crawlId);
-      await saveIndexCheckpoint(docSourceId, {
-        pagesS3Key: result.s3Key,
-        pageCount: result.pageCount,
-      });
-      return result;
+      return await finishScrapeAndStore(docSourceId, crawlId);
     });
+
+    // Step 3d (SPA sites only): Batch scrape via Playwright to avoid 300s timeout
+    let scrapeResult: { s3Key: string; pageCount: number };
+    if (fetchResult.spaLinks?.length) {
+      const SPA_BATCH_SIZE = 10;
+      const batches: string[][] = [];
+      for (let i = 0; i < fetchResult.spaLinks.length; i += SPA_BATCH_SIZE) {
+        batches.push(fetchResult.spaLinks.slice(i, i + SPA_BATCH_SIZE));
+      }
+      const batchS3Keys: string[] = [];
+
+      for (let i = 0; i < batches.length; i++) {
+        await step.run(`emit-spa-progress-${i}`, async () => {
+          await inngest.send({
+            name: "docsource/status.updated",
+            data: {
+              docSourceId,
+              status: "scraping",
+              message: `Scraping SPA pages ${i * SPA_BATCH_SIZE + 1}-${Math.min((i + 1) * SPA_BATCH_SIZE, fetchResult.spaLinks!.length)} of ${fetchResult.spaLinks!.length}...`,
+            },
+          });
+        });
+
+        const batchResult = await step.run(`spa-scrape-batch-${i}`, async () => {
+          return scrapeSPABatch(docSourceId, batches[i], i);
+        });
+        batchS3Keys.push(batchResult.s3Key);
+
+        if (i < batches.length - 1) {
+          await step.sleep(`spa-batch-sleep-${i}`, "2s");
+        }
+      }
+
+      scrapeResult = await step.run("spa-combine-results", async () => {
+        const result = await combineSPABatches(docSourceId, batchS3Keys, fetchResult.rootPage!);
+        await saveIndexCheckpoint(docSourceId, { pagesS3Key: result.s3Key, pageCount: result.pageCount });
+        return result;
+      });
+    } else {
+      scrapeResult = { s3Key: fetchResult.s3Key, pageCount: fetchResult.pageCount };
+      await step.run("save-crawl-checkpoint", async () => {
+        await saveIndexCheckpoint(docSourceId, { pagesS3Key: scrapeResult.s3Key, pageCount: scrapeResult.pageCount });
+      });
+    }
 
     // Step 4: Emit chunking status
     await step.run("emit-chunking-status", async () => {
@@ -443,20 +492,27 @@ export const smartReindexDocSourceFunction = inngest.createFunction(
       return id;
     });
 
-    // Step 2b: Poll every 30 s until Firecrawl finishes (max 20 × 30 s = 10 min)
+    // Step 2b: Poll every 30 s until Firecrawl finishes (max 40 × 30 s = 20 min)
     let crawlComplete = false;
     for (let poll = 0; poll < 40 && !crawlComplete; poll++) {
       await step.sleep(`poll-reindex-wait-${poll}`, "30s");
       crawlComplete = await step.run(`poll-reindex-${poll}`, async () => {
-        return checkCrawlComplete(crawlId);
+        const { done, completed, total } = await checkCrawlComplete(crawlId);
+        if (!done && total > 0) {
+          await inngest.send({
+            name: "docsource/status.updated",
+            data: { docSourceId, status: "scraping", message: `Scraping ${completed}/${total} pages...` },
+          });
+        }
+        return done;
       });
     }
     if (!crawlComplete) {
       throw new Error(`[DocSource:${docSourceId}] Re-index crawl timed out after 20 minutes`);
     }
 
-    // Step 2c: Fetch pages, compare hashes, store only changed pages to S3
-    const scrapeResult = await step.run("smart-scrape-and-store", async () => {
+    // Step 2c: Fetch pages, compare hashes, store only changed pages to S3 (or signal SPA mode)
+    const smartFetchResult = await step.run("smart-scrape-and-store", async () => {
       const cp = await getIndexCheckpoint(docSourceId);
       if (
         isCheckpointValid(cp) &&
@@ -474,15 +530,68 @@ export const smartReindexDocSourceFunction = inngest.createFunction(
         };
       }
       console.log(`[DocSource:${docSourceId}] Smart scraping (hash compare)...`);
-      const result = await finishSmartScrapeAndStore(docSourceId, crawlId);
-      await saveIndexCheckpoint(docSourceId, {
-        pagesS3Key: result.s3Key,
-        pageCount: result.pageCount,
-        changedCount: result.changedCount,
-        unchangedCount: result.unchangedCount,
-      });
-      return result;
+      return await finishSmartScrapeAndStore(docSourceId, crawlId);
     });
+
+    // Step 2d (SPA sites only): Batch scrape + smart hash compare
+    let scrapeResult: { s3Key: string; pageCount: number; changedCount: number; unchangedCount: number; failedUrls: string[] };
+    if (smartFetchResult.spaLinks?.length) {
+      const SPA_BATCH_SIZE = 10;
+      const batches: string[][] = [];
+      for (let i = 0; i < smartFetchResult.spaLinks.length; i += SPA_BATCH_SIZE) {
+        batches.push(smartFetchResult.spaLinks.slice(i, i + SPA_BATCH_SIZE));
+      }
+      const batchS3Keys: string[] = [];
+
+      for (let i = 0; i < batches.length; i++) {
+        await step.run(`emit-reindex-spa-progress-${i}`, async () => {
+          await inngest.send({
+            name: "docsource/status.updated",
+            data: {
+              docSourceId,
+              status: "scraping",
+              message: `Scraping SPA pages ${i * SPA_BATCH_SIZE + 1}-${Math.min((i + 1) * SPA_BATCH_SIZE, smartFetchResult.spaLinks!.length)} of ${smartFetchResult.spaLinks!.length}...`,
+            },
+          });
+        });
+
+        const batchResult = await step.run(`reindex-spa-scrape-batch-${i}`, async () => {
+          return scrapeSPABatch(docSourceId, batches[i], i);
+        });
+        batchS3Keys.push(batchResult.s3Key);
+
+        if (i < batches.length - 1) {
+          await step.sleep(`reindex-spa-batch-sleep-${i}`, "2s");
+        }
+      }
+
+      scrapeResult = await step.run("reindex-spa-combine-results", async () => {
+        const result = await combineSPABatchesAndSmartStore(docSourceId, batchS3Keys, smartFetchResult.rootPage!);
+        await saveIndexCheckpoint(docSourceId, {
+          pagesS3Key: result.s3Key,
+          pageCount: result.pageCount,
+          changedCount: result.changedCount,
+          unchangedCount: result.unchangedCount,
+        });
+        return result;
+      });
+    } else {
+      scrapeResult = {
+        s3Key: smartFetchResult.s3Key,
+        pageCount: smartFetchResult.pageCount,
+        changedCount: smartFetchResult.changedCount,
+        unchangedCount: smartFetchResult.unchangedCount,
+        failedUrls: smartFetchResult.failedUrls,
+      };
+      await step.run("save-reindex-checkpoint", async () => {
+        await saveIndexCheckpoint(docSourceId, {
+          pagesS3Key: scrapeResult.s3Key,
+          pageCount: scrapeResult.pageCount,
+          changedCount: scrapeResult.changedCount,
+          unchangedCount: scrapeResult.unchangedCount,
+        });
+      });
+    }
 
     // If nothing changed, skip all remaining steps
     if (scrapeResult.changedCount === 0) {

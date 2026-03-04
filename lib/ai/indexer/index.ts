@@ -29,8 +29,9 @@ import {
   indexingPrefix,
   pagesKey,
   chunksKey,
+  spaBatchKey,
 } from "@/lib/s3";
-import { startDocsCrawl, fetchCrawlPages } from "./scrape";
+import { startDocsCrawl, fetchCrawlPages, scrapeDocsSPA, type ScrapedPage } from "./scrape";
 
 export interface IndexProgress {
   stage: "scraping" | "chunking" | "embedding" | "storing" | "complete";
@@ -542,16 +543,169 @@ export async function startScrapeJob(docSourceId: string): Promise<string> {
 
 /**
  * Fetch completed crawl pages and store them in S3.
- * Call this after checkCrawlComplete() returns true.
+ * If BFS returns < 5 pages (SPA site), returns spaLinks instead of storing pages.
+ * Inngest will then run batched SPA scraping steps to avoid the 300s timeout.
  */
 export async function finishScrapeAndStore(
   docSourceId: string,
   crawlId: string,
-): Promise<{ pageCount: number; s3Key: string }> {
+): Promise<{ pageCount: number; s3Key: string; spaLinks?: string[]; rootPage?: ScrapedPage }> {
   const pages = await fetchCrawlPages(crawlId);
+
+  if (pages.length < 5) {
+    console.log(`[DocSource:${docSourceId}] BFS returned only ${pages.length} pages — signalling SPA mode to Inngest`);
+    const docSource = await prisma.docSource.findUnique({ where: { id: docSourceId } });
+    if (docSource) {
+      const { links, rootPage } = await discoverSPALinks(docSource.rootUrl);
+      if (links.length > 0) {
+        return { pageCount: 0, s3Key: "", spaLinks: links, rootPage };
+      }
+    }
+  }
+
   const key = pagesKey(docSourceId);
   await uploadJSON(key, pages);
   return { pageCount: pages.length, s3Key: key };
+}
+
+/**
+ * Scrape root URL via Playwright to discover all SPA navigation links.
+ * Returns discovered links (filtered to same origin + base path) and the root page content.
+ */
+export async function discoverSPALinks(rootUrl: string): Promise<{ links: string[]; rootPage: ScrapedPage }> {
+  const { firecrawl } = await import("./scrape");
+  const rootUrlObj = new URL(rootUrl);
+  const basePath = rootUrlObj.pathname.split("/").slice(0, 2).join("/");
+  const hasBasePath = basePath && basePath !== "/";
+
+  const result = await firecrawl.scrape(rootUrl, { formats: ["markdown", "links"] });
+
+  const rootPage: ScrapedPage = {
+    url: rootUrl,
+    title: result.metadata?.title || rootUrl,
+    content: (result.markdown ?? "").trim(),
+    links: [],
+  };
+
+  const normalize = (u: string) => {
+    try {
+      const p = new URL(u);
+      return `${p.origin}${p.pathname}`.replace(/\/$/, "");
+    } catch { return u; }
+  };
+
+  const visited = new Set([normalize(rootUrl)]);
+  const links: string[] = [];
+
+  for (const href of (result as { links?: string[] }).links ?? []) {
+    try {
+      const u = new URL(href, rootUrl);
+      if (u.origin !== rootUrlObj.origin) continue;
+      if (hasBasePath && !u.pathname.startsWith(basePath)) continue;
+      const norm = normalize(u.href);
+      if (!visited.has(norm)) {
+        visited.add(norm);
+        links.push(norm);
+      }
+    } catch { /* skip */ }
+  }
+
+  console.log(`[discoverSPALinks] rootUrl=${rootUrl} discovered=${links.length} links`);
+  return { links, rootPage };
+}
+
+/**
+ * Scrape a batch of SPA URLs and store results to S3.
+ * Each batch is one Inngest step — safe within Vercel's 300s limit.
+ */
+export async function scrapeSPABatch(
+  docSourceId: string,
+  urls: string[],
+  batchIndex: number,
+): Promise<{ s3Key: string; pageCount: number }> {
+  const pages: ScrapedPage[] = [];
+  for (const url of urls) {
+    try {
+      const { scrapePage } = await import("./scrape");
+      const page = await scrapePage(url);
+      pages.push(page);
+      await new Promise((r) => setTimeout(r, 300));
+    } catch (err) {
+      console.error(`[scrapeSPABatch] failed: ${url}`, err);
+    }
+  }
+  const key = spaBatchKey(docSourceId, batchIndex);
+  await uploadJSON(key, pages);
+  return { s3Key: key, pageCount: pages.length };
+}
+
+/**
+ * Combine all SPA batch S3 files + root page into the final pages S3 key.
+ */
+export async function combineSPABatches(
+  docSourceId: string,
+  batchS3Keys: string[],
+  rootPage: ScrapedPage,
+): Promise<{ s3Key: string; pageCount: number }> {
+  const allPages: ScrapedPage[] = [rootPage];
+  for (const key of batchS3Keys) {
+    const batch = await downloadJSON<ScrapedPage[]>(key);
+    allPages.push(...batch);
+  }
+  const key = pagesKey(docSourceId);
+  await uploadJSON(key, allPages);
+  return { s3Key: key, pageCount: allPages.length };
+}
+
+/**
+ * Combine all SPA batch S3 files + root page, then run hash comparison for smart re-index.
+ */
+export async function combineSPABatchesAndSmartStore(
+  docSourceId: string,
+  batchS3Keys: string[],
+  rootPage: ScrapedPage,
+): Promise<{ pageCount: number; changedCount: number; unchangedCount: number; s3Key: string; failedUrls: string[] }> {
+  const existingChunks = await prisma.chunk.findMany({
+    where: { docSourceId },
+    select: { url: true, contentHash: true, vectorId: true },
+  });
+  const existingByUrl = new Map<string, { hashes: Set<string>; vectorIds: string[] }>();
+  for (const chunk of existingChunks) {
+    const entry = existingByUrl.get(chunk.url) ?? { hashes: new Set<string>(), vectorIds: [] };
+    if (chunk.contentHash) entry.hashes.add(chunk.contentHash);
+    entry.vectorIds.push(chunk.vectorId);
+    existingByUrl.set(chunk.url, entry);
+  }
+
+  const allPages: ScrapedPage[] = [rootPage];
+  for (const key of batchS3Keys) {
+    const batch = await downloadJSON<ScrapedPage[]>(key);
+    allPages.push(...batch);
+  }
+
+  const changedPages: Page[] = [];
+  let unchangedCount = 0;
+
+  for (const page of allPages) {
+    const contentHash = createHash("sha256").update(page.content).digest("hex");
+    const existing = existingByUrl.get(page.url);
+    if (existing && existing.hashes.has(contentHash)) {
+      unchangedCount++;
+    } else {
+      changedPages.push(page);
+      if (existing) {
+        const { pineconeIndex } = await import("../pinecone");
+        if (existing.vectorIds.length > 0) await pineconeIndex.deleteMany(existing.vectorIds);
+        await prisma.chunk.deleteMany({ where: { docSourceId, url: page.url } });
+      }
+    }
+  }
+
+  const key = pagesKey(docSourceId);
+  await uploadJSON(key, changedPages);
+  await prisma.docSource.update({ where: { id: docSourceId }, data: { failedUrls: [] } });
+
+  return { pageCount: allPages.length, changedCount: changedPages.length, unchangedCount, s3Key: key, failedUrls: [] };
 }
 
 /**
@@ -568,8 +722,24 @@ export async function finishSmartScrapeAndStore(
   unchangedCount: number;
   s3Key: string;
   failedUrls: string[];
+  spaLinks?: string[];
+  rootPage?: ScrapedPage;
 }> {
-  // Load existing content hashes grouped by URL
+  const allPages = await fetchCrawlPages(crawlId);
+
+  // Signal SPA mode to Inngest — batched scraping will happen in separate steps
+  if (allPages.length < 5) {
+    console.log(`[DocSource:${docSourceId}] Reindex BFS returned only ${allPages.length} pages — signalling SPA mode`);
+    const docSource = await prisma.docSource.findUnique({ where: { id: docSourceId } });
+    if (docSource) {
+      const { links, rootPage } = await discoverSPALinks(docSource.rootUrl);
+      if (links.length > 0) {
+        return { pageCount: 0, changedCount: 0, unchangedCount: 0, s3Key: "", failedUrls: [], spaLinks: links, rootPage };
+      }
+    }
+  }
+
+  // Normal path: BFS returned enough pages, run hash comparison inline
   const existingChunks = await prisma.chunk.findMany({
     where: { docSourceId },
     select: { url: true, contentHash: true, vectorId: true },
@@ -582,7 +752,6 @@ export async function finishSmartScrapeAndStore(
     existingByUrl.set(chunk.url, entry);
   }
 
-  const allPages = await fetchCrawlPages(crawlId);
   const changedPages: Page[] = [];
   let unchangedCount = 0;
 
@@ -595,9 +764,7 @@ export async function finishSmartScrapeAndStore(
       changedPages.push(page);
       if (existing) {
         const { pineconeIndex } = await import("../pinecone");
-        if (existing.vectorIds.length > 0) {
-          await pineconeIndex.deleteMany(existing.vectorIds);
-        }
+        if (existing.vectorIds.length > 0) await pineconeIndex.deleteMany(existing.vectorIds);
         await prisma.chunk.deleteMany({ where: { docSourceId, url: page.url } });
       }
     }
@@ -607,13 +774,7 @@ export async function finishSmartScrapeAndStore(
   await uploadJSON(key, changedPages);
   await prisma.docSource.update({ where: { id: docSourceId }, data: { failedUrls: [] } });
 
-  return {
-    pageCount: allPages.length,
-    changedCount: changedPages.length,
-    unchangedCount,
-    s3Key: key,
-    failedUrls: [],
-  };
+  return { pageCount: allPages.length, changedCount: changedPages.length, unchangedCount, s3Key: key, failedUrls: [] };
 }
 
 /**

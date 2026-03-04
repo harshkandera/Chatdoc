@@ -123,6 +123,10 @@ export function chunksKey(docSourceId: string): string {
   return `${indexingPrefix(docSourceId)}chunks.json`;
 }
 
+export function spaBatchKey(docSourceId: string, batchIndex: number): string {
+  return `${indexingPrefix(docSourceId)}spa-batch-${batchIndex}.json`;
+}
+
 /**
  * Generate the S3 prefix for discovered pages (web search fallback).
  * Kept separate from indexing/ to avoid collisions with the main pipeline.

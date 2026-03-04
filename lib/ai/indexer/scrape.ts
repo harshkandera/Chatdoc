@@ -1,9 +1,16 @@
-import FirecrawlApp from "@mendable/firecrawl-js";
+import FirecrawlApp, { FirecrawlAppV1 as FirecrawlV1Client } from "@mendable/firecrawl-js";
 
-// ─── Firecrawl client ────────────────────────────────────────────────────────
-const firecrawl = new FirecrawlApp({
+// ─── Firecrawl clients ────────────────────────────────────────────────────────
+// v2 default client — used for single-page scrape
+export const firecrawl = new FirecrawlApp({
   apiKey: process.env.FIRECRAWL_API_KEY!,
-  apiUrl: process.env.FIRECRAWL_API_URL, // optional: self-hosted Firecrawl URL
+  apiUrl: process.env.FIRECRAWL_API_URL,
+});
+
+// v1 client — used for async crawl (hits /v1/crawl, works on self-hosted)
+const firecrawlV1 = new FirecrawlV1Client({
+  apiKey: process.env.FIRECRAWL_API_KEY!,
+  apiUrl: process.env.FIRECRAWL_API_URL,
 });
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
@@ -73,9 +80,9 @@ async function validateUrl(url: string): Promise<void> {
   }
 }
 
-// ─── Async Crawl API (Inngest-safe, no Vercel timeout) ────────────────────────
+// ─── Async Crawl API (Inngest-safe, uses /v1/crawl for self-hosted compat) ────
 
-function buildCrawlOptions(rootUrl: string) {
+function buildV1CrawlOptions(rootUrl: string) {
   const rootUrlObj = new URL(rootUrl);
   const basePath = rootUrlObj.pathname.split("/").slice(0, 2).join("/");
   const hasBasePath = basePath && basePath !== "/";
@@ -86,51 +93,134 @@ function buildCrawlOptions(rootUrl: string) {
     limit: 500,
     allowExternalLinks: false,
     ...(escapedBasePath ? { includePaths: [`${escapedBasePath}(/.*)?`] } : {}),
-    scrapeOptions: { formats: ["markdown"] as ["markdown"] },
+    scrapeOptions: { formats: ["markdown" as const, "links" as const] },
   };
 }
 
 /**
- * Start a Firecrawl crawl asynchronously and return the job ID.
- * Each call returns immediately — use checkCrawlComplete() + fetchCrawlPages()
- * via Inngest step.sleep polling to avoid Vercel's 300 s timeout.
+ * Start a Firecrawl crawl asynchronously via /v1/crawl (self-hosted compatible).
+ * Returns immediately with a job ID.
  */
 export async function startDocsCrawl(rootUrl: string): Promise<string> {
   await validateUrl(rootUrl);
-  const response = await firecrawl.startCrawl(rootUrl, buildCrawlOptions(rootUrl));
-  return response.id;
+  const response = await firecrawlV1.asyncCrawlUrl(rootUrl, buildV1CrawlOptions(rootUrl));
+  if (!response.success) throw new Error("Firecrawl failed to start crawl");
+  return (response as { success: true; id: string }).id;
 }
 
 /**
- * Returns true when the crawl is done. Throws on failure/cancellation.
- * Safe to call repeatedly; fetches only status (no page data).
+ * Check crawl status. Returns { done, completed, total } so callers can show progress.
+ * Throws on failure/cancellation.
  */
-export async function checkCrawlComplete(crawlId: string): Promise<boolean> {
-  const job = await firecrawl.getCrawlStatus(crawlId, {
-    autoPaginate: false,
-    maxResults: 0,
-  });
-  if (job.status === "failed" || job.status === "cancelled") {
-    throw new Error(`Firecrawl crawl ${crawlId} ended with status: ${job.status}`);
+export async function checkCrawlComplete(crawlId: string): Promise<{ done: boolean; completed: number; total: number }> {
+  const res = await firecrawlV1.checkCrawlStatus(crawlId);
+  if (!res.success) throw new Error(`Firecrawl status check failed for ${crawlId}`);
+  const status = res as { success: true; status: string; completed: number; total: number };
+  console.log(`[checkCrawlComplete] crawlId=${crawlId} status=${status.status} completed=${status.completed}/${status.total}`);
+  if (status.status === "failed" || status.status === "cancelled") {
+    throw new Error(`Firecrawl crawl ${crawlId} ended with status: ${status.status}`);
   }
-  return job.status === "completed";
+  return { done: status.status === "completed", completed: status.completed ?? 0, total: status.total ?? 0 };
 }
 
 /**
- * Download all scraped pages for a completed crawl.
- * autoPaginate=true (default) handles Firecrawl cursor pagination automatically.
+ * Fetch all scraped pages for a completed crawl via /v1/crawl/:id.
+ * getAllData=true fetches all paginated results automatically.
  */
 export async function fetchCrawlPages(crawlId: string): Promise<ScrapedPage[]> {
-  const job = await firecrawl.getCrawlStatus(crawlId);
-  return job.data.map((doc) => ({
-    url: doc.metadata?.url ?? "",
+  const res = await firecrawlV1.checkCrawlStatus(crawlId, true); // true = getAllData
+  if (!res.success) throw new Error(`Firecrawl fetch failed for ${crawlId}`);
+  const result = res as { success: true; total: number; data: { markdown?: string; metadata?: { sourceURL?: string; url?: string; title?: string } }[] };
+  console.log(`[fetchCrawlPages] crawlId=${crawlId} total=${result.total} fetched=${result.data?.length ?? 0}`);
+  return (result.data ?? []).map((doc) => ({
+    url: doc.metadata?.sourceURL ?? doc.metadata?.url ?? "",
     title: doc.metadata?.title || extractTitleFromMarkdown(doc.markdown ?? ""),
     content: cleanMarkdown(doc.markdown ?? ""),
-    links: (doc as unknown as { links?: string[] }).links ?? [],
+    links: [],
   }));
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
+
+/**
+ * SPA-aware BFS scraper using /v1/scrape (Playwright) instead of /v1/crawl BFS.
+ * Firecrawl's crawl uses fast-fetch for link discovery (no JS), so SPAs return 2 pages.
+ * This does a proper BFS using the scrape endpoint which always uses Playwright.
+ *
+ * Use as fallback when startDocsCrawl + fetchCrawlPages returns < 5 pages.
+ */
+export async function scrapeDocsSPA(
+  rootUrl: string,
+  maxPages = 200,
+  onProgress?: (scraped: number, total: number) => void,
+): Promise<ScrapedPage[]> {
+  await validateUrl(rootUrl);
+
+  const rootUrlObj = new URL(rootUrl);
+  const basePath = rootUrlObj.pathname.split("/").slice(0, 2).join("/");
+  const hasBasePath = basePath && basePath !== "/";
+
+  const visited = new Set<string>();
+  const queue: string[] = [rootUrl];
+  const pages: ScrapedPage[] = [];
+
+  const normalize = (u: string) => {
+    try {
+      const parsed = new URL(u);
+      return `${parsed.origin}${parsed.pathname}`.replace(/\/$/, "");
+    } catch {
+      return u;
+    }
+  };
+
+  visited.add(normalize(rootUrl));
+
+  while (queue.length > 0 && pages.length < maxPages) {
+    const url = queue.shift()!;
+
+    try {
+      const result = await firecrawl.scrape(url, {
+        formats: ["markdown", "links"],
+      });
+
+      const page: ScrapedPage = {
+        url,
+        title: result.metadata?.title || extractTitleFromMarkdown(result.markdown ?? ""),
+        content: cleanMarkdown(result.markdown ?? ""),
+        links: [],
+      };
+      pages.push(page);
+      onProgress?.(pages.length, pages.length + queue.length);
+
+      // Discover new links from Playwright-rendered page
+      const rawLinks: string[] = (result as { links?: string[] }).links ?? [];
+      for (const href of rawLinks) {
+        try {
+          const u = new URL(href, url);
+          if (u.origin !== rootUrlObj.origin) continue;
+          if (hasBasePath && !u.pathname.startsWith(basePath)) continue;
+          const norm = normalize(u.href);
+          if (!visited.has(norm)) {
+            visited.add(norm);
+            queue.push(norm);
+          }
+        } catch {
+          // skip invalid URLs
+        }
+      }
+
+      console.log(`[scrapeDocsSPA] scraped=${pages.length} queue=${queue.length} url=${url}`);
+
+      if (queue.length > 0) {
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    } catch (err) {
+      console.error(`[scrapeDocsSPA] failed: ${url}`, err);
+    }
+  }
+
+  return pages;
+}
 
 // Scrape a single page via Firecrawl
 export async function scrapePage(url: string): Promise<ScrapedPage> {
@@ -207,7 +297,7 @@ export async function crawlDocs(
     ...(escapedBasePath
       ? { includePaths: [`${escapedBasePath}(/.*)?`] }
       : {}),
-    scrapeOptions: { formats: ["markdown"] },
+    scrapeOptions: { formats: ["markdown", "links"] },
   });
 
   if (result.status !== "completed") {

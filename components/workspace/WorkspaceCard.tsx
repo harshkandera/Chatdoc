@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useDocSourceStatus } from "@/lib/hooks/useDocSourceStatus";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 
 interface WorkspaceCardProps {
   id: string;
@@ -57,8 +57,12 @@ export function WorkspaceCard({
   onStartIndexing,
 }: WorkspaceCardProps) {
   const [reindexing, setReindexing] = useState(false);
+  const [startingIndexing, setStartingIndexing] = useState(false);
   const [reindexError, setReindexError] = useState<string | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [reindexMessageVisible, setReindexMessageVisible] = useState(true);
+  const reindexTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Use polling hook for real-time status
   const {
@@ -82,6 +86,30 @@ export function WorkspaceCard({
     status === "ready" &&
     lastChangeAt &&
     (!lastSeenChangeAt || new Date(lastChangeAt) > new Date(lastSeenChangeAt));
+
+  // Auto-hide re-index complete message after 5 seconds
+  useEffect(() => {
+    if (status === "ready" && statusMessage?.includes("Re-index")) {
+      if (reindexTimerRef.current) clearTimeout(reindexTimerRef.current);
+      setReindexMessageVisible(true);
+      reindexTimerRef.current = setTimeout(() => setReindexMessageVisible(false), 5000);
+    }
+    return () => {
+      if (reindexTimerRef.current) clearTimeout(reindexTimerRef.current);
+    };
+  }, [status, statusMessage]);
+
+  // Auto-dismiss docs updated banner after 8 seconds
+  useEffect(() => {
+    if (showChangeBanner) {
+      if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+      bannerTimerRef.current = setTimeout(() => handleDismissBanner(), 8000);
+    }
+    return () => {
+      if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showChangeBanner]);
 
   // Relative time helper
   function timeAgo(dateStr: string): string {
@@ -140,10 +168,15 @@ export function WorkspaceCard({
 
   // Handler to trigger API call THEN start polling (order matters!)
   const handleStartIndexing = async () => {
-    if (onStartIndexing) {
-      await onStartIndexing(); // Wait for API to update DB status first
+    setStartingIndexing(true);
+    try {
+      if (onStartIndexing) {
+        await onStartIndexing(); // Wait for API to update DB status first
+      }
+      startPolling(); // Now polling will see the new "pending" status, not stale "error"
+    } finally {
+      setStartingIndexing(false);
     }
-    startPolling(); // Now polling will see the new "pending" status, not stale "error"
   };
 
   const statusConfig: Record<
@@ -263,8 +296,9 @@ export function WorkspaceCard({
         </div>
       )}
 
-      {/* Re-index success message (shown when ready + has message about re-index) */}
-      {status === "ready" &&
+      {/* Re-index success message (shown when ready + has message about re-index, auto-hides after 5s) */}
+      {reindexMessageVisible &&
+        status === "ready" &&
         statusMessage &&
         statusMessage.includes("Re-index") && (
           <div className="mb-3 text-xs text-emerald-400 bg-emerald-500/5 rounded-lg px-3 py-2 border border-emerald-500/10">
@@ -338,10 +372,26 @@ export function WorkspaceCard({
         ) : status === "error" ? (
           <Button
             onClick={handleStartIndexing}
-            className={`flex-1 gap-2 ${canResume ? "bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-400" : "bg-red-500/20 hover:bg-red-500/30 text-red-400"}`}
-            title={canResume ? "Resume from last checkpoint (skips completed steps)" : "Retry indexing from scratch"}
+            disabled={startingIndexing}
+            className={`flex-1 gap-2 ${
+              startingIndexing
+                ? "opacity-60 cursor-not-allowed"
+                : canResume
+                  ? "bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-400"
+                  : "bg-red-500/20 hover:bg-red-500/30 text-red-400"
+            }`}
+            title={
+              canResume
+                ? "Resume from last checkpoint (skips completed steps)"
+                : "Retry indexing from scratch"
+            }
           >
-            {canResume ? (
+            {startingIndexing ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                {canResume ? "Resuming..." : "Retrying..."}
+              </>
+            ) : canResume ? (
               <>
                 <RotateCcw className="w-3.5 h-3.5" />
                 Resume
