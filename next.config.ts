@@ -43,11 +43,11 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://clerk.com https://*.clerk.accounts.dev https://js.intercomcdn.com https://cdn.jsdelivr.net https://va.vercel-scripts.com",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://clerk.com https://*.clerk.accounts.dev https://clerk.thechatdoc.online https://js.intercomcdn.com https://cdn.jsdelivr.net https://va.vercel-scripts.com",
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' blob: data: https:",
-              "connect-src 'self' https://api.clerk.com https://*.clerk.accounts.dev https://api.groq.com https://generativelanguage.googleapis.com https://api.openai.com https://api.pinecone.io https://*.pinecone.io https://*.unicornplatform.com https://unicornstudio.b-cdn.net https://*.b-cdn.net https://storage.googleapis.com wss:",
+              "connect-src 'self' https://api.clerk.com https://*.clerk.accounts.dev https://clerk.thechatdoc.online https://accounts.thechatdoc.online https://api.groq.com https://generativelanguage.googleapis.com https://api.openai.com https://api.pinecone.io https://*.pinecone.io https://*.unicornplatform.com https://unicornstudio.b-cdn.net https://*.b-cdn.net https://storage.googleapis.com wss:",
               "media-src 'self' https://cdn.coverr.co blob:",
               "worker-src 'self' blob:",
               "frame-ancestors 'none'",
