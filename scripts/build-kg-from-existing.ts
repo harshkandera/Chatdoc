@@ -57,7 +57,7 @@ async function buildKgForDocSource(docSourceId: string, productName: string) {
   // Reconstruct pages from chunks
   const pageMap = new Map<
     string,
-    { url: string; title: string; content: string }
+    { url: string; title: string; content: string; links: string[] }
   >();
   for (const chunk of chunks) {
     if (!pageMap.has(chunk.url)) {
@@ -65,6 +65,7 @@ async function buildKgForDocSource(docSourceId: string, productName: string) {
         url: chunk.url,
         title: chunk.title,
         content: "",
+        links: [],
       });
     }
     const page = pageMap.get(chunk.url)!;
