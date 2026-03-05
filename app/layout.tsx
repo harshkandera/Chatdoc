@@ -102,6 +102,8 @@ export default function RootLayout({
                 colorTextSecondary: "#a3a3a3",
                 colorPrimary: "#6c47ff",
                 colorDanger: "#ef4444",
+                colorInputBackground: "#0a0a0a",
+                colorInputText: "#ffffff",
                 borderRadius: "0.75rem",
                 fontSize: "0.875rem",
               },
@@ -119,6 +121,17 @@ export default function RootLayout({
                   "bg-black border border-white/10 text-white focus:ring-[#6c47ff]",
 
                 footer: "hidden",
+                socialButtonsBlockButton: {
+                  backgroundColor: "#171717",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  color: "#ffffff",
+                },
+                socialButtonsIconButton: {
+                  backgroundColor: "#171717",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  width: "100%",
+                  padding: "10px",
+                },
               },
             }}
           >
