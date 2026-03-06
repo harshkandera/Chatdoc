@@ -98,14 +98,7 @@ export async function POST(req: Request) {
   const userId = user.id;
 
   const body = await req.json();
-  const { name, sourceUrl, productName } = body;
-
-  if (!name || !sourceUrl) {
-    return NextResponse.json(
-      { error: "name and sourceUrl are required" },
-      { status: 400 },
-    );
-  }
+  const { name, sourceUrl, productName, docSourceId } = body;
 
   // Check subscription limits
   const { isReached, limit } = await checkDocLimit(userId);
@@ -118,62 +111,83 @@ export async function POST(req: Request) {
     );
   }
 
-  // Validate URL with AI Verification Agent
-  let verification;
-  try {
-    const { verifyDocumentationUrl } =
-      await import("@/lib/ai/validation/verifyUrl");
-    console.log(`[API/Workspaces] Verifying URL: ${sourceUrl}`);
-    verification = await verifyDocumentationUrl(sourceUrl);
+  let docSource;
+  let isNewDocSource = false;
 
-    if (!verification.isValid) {
+  // Fast-path: catalog already knows the DocSource — skip AI verification
+  if (docSourceId) {
+    const existing = await prisma.docSource.findUnique({
+      where: { id: docSourceId },
+    });
+    if (!existing) {
       return NextResponse.json(
-        { error: verification.error || "Invalid URL" },
+        { error: "Documentation source not found." },
+        { status: 404 },
+      );
+    }
+    docSource = existing;
+  } else {
+    if (!name || !sourceUrl) {
+      return NextResponse.json(
+        { error: "name and sourceUrl are required" },
         { status: 400 },
       );
     }
 
-    // STRICT MODE: Only allow official docs
-    // You can relax this to "high" confidence if you want to allow some blogs
-    if (!verification.isOfficialDocs) {
+    // Validate URL with AI Verification Agent
+    let verification;
+    try {
+      const { verifyDocumentationUrl } =
+        await import("@/lib/ai/validation/verifyUrl");
+      console.log(`[API/Workspaces] Verifying URL: ${sourceUrl}`);
+      verification = await verifyDocumentationUrl(sourceUrl);
+
+      if (!verification.isValid) {
+        return NextResponse.json(
+          { error: verification.error || "Invalid URL" },
+          { status: 400 },
+        );
+      }
+
+      // STRICT MODE: Only allow official docs
+      // You can relax this to "high" confidence if you want to allow some blogs
+      if (!verification.isOfficialDocs) {
+        return NextResponse.json(
+          {
+            error:
+              "This does not appear to be official documentation. referencing blogs or tutorials is not supported yet.",
+            details: verification,
+          },
+          { status: 400 },
+        );
+      }
+    } catch (error) {
+      console.error(`[API/Workspaces] Verification failed:`, error);
       return NextResponse.json(
-        {
-          error:
-            "This does not appear to be official documentation. referencing blogs or tutorials is not supported yet.",
-          details: verification,
-        },
-        { status: 400 },
+        { error: "Failed to verify documentation URL. Please try again." },
+        { status: 500 },
       );
     }
-  } catch (error) {
-    console.error(`[API/Workspaces] Verification failed:`, error);
-    // Fallback: allow creation but warn? Or fail safe?
-    // For now, let's fail safe to prevent bad data
-    return NextResponse.json(
-      { error: "Failed to verify documentation URL. Please try again." },
-      { status: 500 },
-    );
-  }
 
-  // Use the VERIFIED root URL and product name
-  // This auto-fix: polar.sh/docs/api -> polar.sh/docs
-  const cleanUrl = verification.rootDocsUrl || sourceUrl;
-  const cleanName = verification.product || productName || name;
+    // Use the VERIFIED root URL and product name
+    // This auto-fix: polar.sh/docs/api -> polar.sh/docs
+    const cleanUrl = verification.rootDocsUrl || sourceUrl;
+    const cleanName = verification.product || productName || name;
 
-  // Find or create DocSource (shared across users)
-  const { docSource, isNew: isNewDocSource } = await findOrCreateDocSource(
-    cleanUrl,
-    {
+    const result = await findOrCreateDocSource(cleanUrl, {
       productName: cleanName,
       docType: verification.docType,
-    },
-  );
+    });
+    docSource = result.docSource;
+    isNewDocSource = result.isNew;
+  }
 
   // Find or create Workspace for this user + docSource
+  const workspaceName = name || docSource.productName;
   const { workspace, isNew: isNewWorkspace } = await findOrCreateWorkspace(
     userId,
     docSource.id,
-    name,
+    workspaceName,
   );
 
   console.log(`[API/Workspaces] Returning response:`, {

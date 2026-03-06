@@ -60,9 +60,11 @@ export function WorkspaceCard({
   const [startingIndexing, setStartingIndexing] = useState(false);
   const [reindexError, setReindexError] = useState<string | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
-  const [reindexMessageVisible, setReindexMessageVisible] = useState(true);
+  const [reindexMessageVisible, setReindexMessageVisible] = useState(false);
   const reindexTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Only true when user explicitly clicked Re-index THIS session
+  const reindexTriggeredRef = useRef(false);
 
   // Use polling hook for real-time status
   const {
@@ -87,9 +89,10 @@ export function WorkspaceCard({
     lastChangeAt &&
     (!lastSeenChangeAt || new Date(lastChangeAt) > new Date(lastSeenChangeAt));
 
-  // Auto-hide re-index complete message after 5 seconds
+  // Show re-index complete message only when user triggered a re-index THIS session
   useEffect(() => {
-    if (status === "ready" && statusMessage?.includes("Re-index")) {
+    if (reindexTriggeredRef.current && dynamicStatus === "ready") {
+      reindexTriggeredRef.current = false;
       if (reindexTimerRef.current) clearTimeout(reindexTimerRef.current);
       setReindexMessageVisible(true);
       reindexTimerRef.current = setTimeout(() => setReindexMessageVisible(false), 5000);
@@ -97,7 +100,7 @@ export function WorkspaceCard({
     return () => {
       if (reindexTimerRef.current) clearTimeout(reindexTimerRef.current);
     };
-  }, [status, statusMessage]);
+  }, [dynamicStatus]);
 
   // Auto-dismiss docs updated banner after 8 seconds
   useEffect(() => {
@@ -157,7 +160,8 @@ export function WorkspaceCard({
         return;
       }
 
-      // Success — start polling for status updates
+      // Success — mark that a re-index was triggered this session, then start polling
+      reindexTriggeredRef.current = true;
       startPolling();
     } catch {
       setReindexError("Network error. Please try again.");

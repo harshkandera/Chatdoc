@@ -199,6 +199,7 @@ export function DocCatalog() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [addingId, setAddingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/doc-sources")
@@ -223,6 +224,7 @@ export function DocCatalog() {
 
   const handleAdd = async (doc: DocSource) => {
     setAddingId(doc.id);
+    setError(null);
     try {
       const res = await fetch("/api/workspaces", {
         method: "POST",
@@ -230,12 +232,13 @@ export function DocCatalog() {
         body: JSON.stringify({
           name: doc.productName,
           sourceUrl: doc.rootUrl,
+          docSourceId: doc.id,
         }),
       });
 
       if (!res.ok) {
         const err = await res.json();
-        console.error("Failed to add workspace:", err.error);
+        setError(err.error || "Failed to add workspace. Please try again.");
         return;
       }
 
@@ -277,6 +280,13 @@ export function DocCatalog() {
           className="pl-9 bg-white/5 border-white/10 text-white placeholder:text-neutral-500"
         />
       </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400">
+          {error}
+        </div>
+      )}
 
       {/* Results count */}
       <p className="text-xs text-neutral-500">
