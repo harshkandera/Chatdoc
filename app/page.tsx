@@ -10,6 +10,7 @@ import { PricingSection } from "@/components/PricingSection";
 import { CTASection } from "@/components/CTASection";
 import { Footer } from "@/components/Footer";
 import { AuraBackground } from "@/components/AuraBackground";
+import { PRO_PRICE } from "@/lib/plan-config";
 
 export const metadata: Metadata = {
   title: "ChatDoc — Chat with Your Documentation Using AI",
@@ -42,7 +43,7 @@ const jsonLd = {
     "@type": "AggregateOffer",
     priceCurrency: "USD",
     lowPrice: "0",
-    highPrice: "19",
+    highPrice: String(PRO_PRICE),
     offerCount: "2",
   },
   featureList: [

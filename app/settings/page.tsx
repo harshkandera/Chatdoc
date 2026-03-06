@@ -21,6 +21,7 @@ import {
   Crown,
 } from "lucide-react";
 import { UpgradeModal } from "@/components/chat/UpgradeModal";
+import { PRO_PRICE } from "@/lib/plan-config";
 
 interface PlanConfig {
   price: number;
@@ -270,7 +271,7 @@ export default function SettingsPage() {
               <div className="text-center text-neutral-400">Free</div>
               <div className="text-center text-emerald-400 flex items-center justify-center gap-1.5">
                 <Crown className="w-3.5 h-3.5" />
-                Pro — ${usage?.planConfig?.pro.price || 19}/mo
+                Pro — ${usage?.planConfig?.pro.price ?? PRO_PRICE}/mo
               </div>
             </div>
 

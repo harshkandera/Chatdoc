@@ -7,27 +7,27 @@
 
 // ─── Pricing ────────────────────────────────────────────
 export const PRO_PRICE = parseInt(
-  process.env.NEXT_PUBLIC_PRO_PRICE || "19",
+  process.env.NEXT_PUBLIC_PRO_PRICE || "9",
   10,
 );
 
 // ─── Workspace Limits ───────────────────────────────────
 export const FREE_WORKSPACE_LIMIT = parseInt(
-  process.env.NEXT_PUBLIC_FREE_WORKSPACE_LIMIT || "1",
+  process.env.NEXT_PUBLIC_FREE_WORKSPACE_LIMIT || "10",
   10,
 );
 export const PRO_WORKSPACE_LIMIT = parseInt(
-  process.env.NEXT_PUBLIC_PRO_WORKSPACE_LIMIT || "10",
+  process.env.NEXT_PUBLIC_PRO_WORKSPACE_LIMIT || "20",
   10,
 );
 
 // ─── Re-Index Limits (per month) ────────────────────────
 export const FREE_REINDEX_LIMIT = parseInt(
-  process.env.FREE_REINDEX_LIMIT || "1",
+  process.env.FREE_REINDEX_LIMIT || "10",
   10,
 );
 export const PRO_REINDEX_LIMIT = parseInt(
-  process.env.PRO_REINDEX_LIMIT || "5",
+  process.env.PRO_REINDEX_LIMIT || "20",
   10,
 );
 

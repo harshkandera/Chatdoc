@@ -247,7 +247,7 @@ export async function POST(req: Request) {
               metadata: {
                 workspaceId: workspace.id,
                 docSourceId: docSource.id,
-                productName: cleanName,
+                productName: docSource.productName,
               },
             },
           ],
