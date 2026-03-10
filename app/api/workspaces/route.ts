@@ -212,6 +212,7 @@ export async function POST(req: Request) {
         data: {
           docSourceId: docSource.id,
           productName: docSource.productName,
+          triggeredByUserId: userId,
         },
       });
       console.log(

@@ -1,6 +1,9 @@
 import { headers } from "next/headers";
 import { Webhook } from "svix";
 import { prisma } from "@/lib/db/prisma";
+import { sendEmail } from "@/lib/emails/send";
+import { ADMIN_EMAIL } from "@/lib/emails/resend";
+import { welcomeEmail } from "@/lib/emails/templates/welcome";
 
 interface ClerkEmailAddress {
   id: string;
@@ -84,6 +87,18 @@ export async function POST(req: Request) {
         updatedAt: now,
       },
     });
+
+    if (type === "user.created") {
+      const firstName = data.first_name || "there";
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://www.thechatdoc.online";
+
+      await sendEmail({
+        from: `Harsh from ChatDoc <${ADMIN_EMAIL}>`,
+        to: primaryEmail,
+        subject: "Welcome to ChatDoc 👋",
+        html: welcomeEmail({ firstName, appUrl }),
+      }).catch((err) => console.error("[email] Welcome email failed:", err));
+    }
   }
 
   // USER DELETED

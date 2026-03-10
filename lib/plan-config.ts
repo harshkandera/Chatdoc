@@ -23,11 +23,11 @@ export const PRO_WORKSPACE_LIMIT = parseInt(
 
 // ─── Re-Index Limits (per month) ────────────────────────
 export const FREE_REINDEX_LIMIT = parseInt(
-  process.env.FREE_REINDEX_LIMIT || "10",
+  process.env.FREE_REINDEX_LIMIT || "1",
   10,
 );
 export const PRO_REINDEX_LIMIT = parseInt(
-  process.env.PRO_REINDEX_LIMIT || "20",
+  process.env.PRO_REINDEX_LIMIT || "5",
   10,
 );
 

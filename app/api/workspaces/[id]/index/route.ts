@@ -93,6 +93,7 @@ export async function POST(
         data: {
           docSourceId: docSource.id,
           productName: docSource.productName,
+          triggeredByUserId: userId,
         },
       });
 
@@ -119,6 +120,7 @@ export async function POST(
         data: {
           docSourceId: docSource.id,
           productName: docSource.productName,
+          triggeredByUserId: userId,
         },
       });
 

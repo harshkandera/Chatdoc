@@ -3,6 +3,8 @@
 import { Check, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import { SignInButton, useUser } from "@clerk/nextjs";
+import { ContactModal } from "@/components/ContactModal";
 import {
   FREE_PLAN,
   PRO_PLAN,
@@ -51,8 +53,8 @@ const basePlans = [
       "SLA Contracts",
     ],
     cta: "Contact Sales",
-    hrefMonthly: "mailto:sales@chatdoc.com",
-    hrefYearly: "mailto:sales@chatdoc.com",
+    hrefMonthly: null,
+    hrefYearly: null,
     popular: false,
     color: "neutral",
   },
@@ -60,6 +62,8 @@ const basePlans = [
 
 export function PricingSection() {
   const [isYearly, setIsYearly] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
+  const { isSignedIn } = useUser();
 
   return (
     <section
@@ -114,6 +118,7 @@ export function PricingSection() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {basePlans.map((plan) => {
             // Use the correct checkout URL for the selected billing period (#12 fix)
+            // Enterprise plan has null hrefs — handled separately via ContactModal
             const href = isYearly ? plan.hrefYearly : plan.hrefMonthly;
             const displayPrice =
               isYearly && plan.price !== "$0" && plan.price !== "Custom"
@@ -177,22 +182,45 @@ export function PricingSection() {
 
                 {/* CTA Button */}
                 <div className="mt-auto">
-                  <Link
-                    href={href}
-                    className={`flex items-center justify-center w-full py-4 text-xs font-mono uppercase tracking-widest transition-all duration-300 border ${
-                      plan.popular
-                        ? "bg-white text-black border-white hover:bg-neutral-200"
-                        : "bg-transparent text-white border-white/10 hover:border-white/30 hover:bg-white/5"
-                    }`}
-                  >
-                    {plan.cta}
-                  </Link>
+                  {href === null ? (
+                    <button
+                      onClick={() => setContactOpen(true)}
+                      className="flex items-center justify-center w-full py-4 text-xs font-mono uppercase tracking-widest transition-all duration-300 border bg-transparent text-white border-white/10 hover:border-white/30 hover:bg-white/5 cursor-pointer"
+                    >
+                      {plan.cta}
+                    </button>
+                  ) : plan.popular && !isSignedIn ? (
+                    <SignInButton mode="modal" forceRedirectUrl={href}>
+                      <button
+                        className={`flex items-center justify-center w-full py-4 text-xs font-mono uppercase tracking-widest transition-all duration-300 border bg-white text-black border-white hover:bg-neutral-200 cursor-pointer`}
+                      >
+                        {plan.cta}
+                      </button>
+                    </SignInButton>
+                  ) : (
+                    <Link
+                      href={href}
+                      className={`flex items-center justify-center w-full py-4 text-xs font-mono uppercase tracking-widest transition-all duration-300 border ${
+                        plan.popular
+                          ? "bg-white text-black border-white hover:bg-neutral-200"
+                          : "bg-transparent text-white border-white/10 hover:border-white/30 hover:bg-white/5"
+                      }`}
+                    >
+                      {plan.cta}
+                    </Link>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
       </div>
+
+      <ContactModal
+        isOpen={contactOpen}
+        onClose={() => setContactOpen(false)}
+        defaultSubject="Enterprise plan inquiry"
+      />
     </section>
   );
 }

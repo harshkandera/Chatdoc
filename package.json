@@ -72,6 +72,7 @@
     "rehype-pretty-code": "^0.14.1",
     "rehype-shiki": "^0.0.9",
     "remark-gfm": "^4.0.1",
+    "resend": "^6.9.3",
     "shiki": "^3.22.0",
     "sonner": "^2.0.7",
     "streamdown": "^2.2.0",

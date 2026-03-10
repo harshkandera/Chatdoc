@@ -143,7 +143,7 @@ export const indexDocSourceFunction = inngest.createFunction(
   },
   { event: "docsource/index.requested" },
   async ({ event, step }) => {
-    const { docSourceId, productName } = event.data;
+    const { docSourceId, productName, triggeredByUserId } = event.data;
 
     // Step 1: Emit pending status
     await step.run("emit-pending-status", async () => {
@@ -366,6 +366,23 @@ export const indexDocSourceFunction = inngest.createFunction(
       });
     });
 
+    // Step N+1b: Notify user via email (Option B) — no-op if RESEND_API_KEY absent
+    if (triggeredByUserId) {
+      await step.run("notify-indexing-complete", async () => {
+        await inngest.send({
+          name: "notify/indexing.complete",
+          data: {
+            userId: triggeredByUserId,
+            docSourceId,
+            productName,
+            documentCount: scrapeResult.pageCount,
+            chunkCount: chunkResult.chunkCount,
+            type: "index" as const,
+          },
+        });
+      });
+    }
+
     // Step N+2: Trigger async KG build — non-blocking, user is already chatting.
     // Pages are copied to the kg/ S3 prefix which the cleanup below does NOT touch.
     // The KG function is responsible for deleting that key after it finishes.
@@ -461,7 +478,7 @@ export const smartReindexDocSourceFunction = inngest.createFunction(
   },
   { event: "docsource/reindex.requested" },
   async ({ event, step }) => {
-    const { docSourceId, productName } = event.data;
+    const { docSourceId, productName, triggeredByUserId } = event.data;
 
     // Step 1: Emit scraping status
     await step.run("emit-reindex-scraping", async () => {
@@ -606,6 +623,21 @@ export const smartReindexDocSourceFunction = inngest.createFunction(
         });
       });
 
+      if (triggeredByUserId) {
+        await step.run("notify-reindex-no-changes", async () => {
+          await inngest.send({
+            name: "notify/indexing.complete",
+            data: {
+              userId: triggeredByUserId,
+              docSourceId,
+              productName,
+              documentCount: scrapeResult.pageCount,
+              type: "reindex" as const,
+            },
+          });
+        });
+      }
+
       return {
         success: true,
         changedCount: 0,
@@ -705,6 +737,7 @@ export const smartReindexDocSourceFunction = inngest.createFunction(
     }
 
     // Step 5: Mark ready immediately — user can chat while KG updates in background
+    let finalChunkCount = 0;
     await step.run("emit-reindex-ready", async () => {
       const { _count } = await (
         await import("@/lib/db/prisma")
@@ -712,6 +745,7 @@ export const smartReindexDocSourceFunction = inngest.createFunction(
         where: { docSourceId },
         _count: true,
       });
+      finalChunkCount = _count;
       await inngest.send({
         name: "docsource/status.updated",
         data: {
@@ -723,6 +757,23 @@ export const smartReindexDocSourceFunction = inngest.createFunction(
         },
       });
     });
+
+    // Step 5b: Notify user via email (Option B) — no-op if RESEND_API_KEY absent
+    if (triggeredByUserId) {
+      await step.run("notify-reindex-complete", async () => {
+        await inngest.send({
+          name: "notify/indexing.complete",
+          data: {
+            userId: triggeredByUserId,
+            docSourceId,
+            productName,
+            documentCount: scrapeResult.pageCount,
+            chunkCount: finalChunkCount,
+            type: "reindex" as const,
+          },
+        });
+      });
+    }
 
     // Step 6: Trigger async incremental KG update — non-blocking
     await step.run("trigger-kg-rebuild", async () => {
@@ -1314,6 +1365,54 @@ export const buildKnowledgeGraphFunction = inngest.createFunction(
   },
 );
 
+/* -------------------------------------------------------
+   Email Notification — Indexing / Re-Index Complete
+   Listens for "notify/indexing.complete", fetches user email
+   from Clerk, sends via Resend. Falls back gracefully (logs)
+   when RESEND_API_KEY is absent — in-app toast covers that case.
+------------------------------------------------------- */
+export const notifyIndexingCompleteFunction = inngest.createFunction(
+  { id: "notify-indexing-complete", retries: 2 },
+  { event: "notify/indexing.complete" },
+  async ({ event, step }) => {
+    const { userId, productName, documentCount, chunkCount, type } = event.data;
+
+    await step.run("send-indexing-email", async () => {
+      const { clerkClient } = await import("@clerk/nextjs/server");
+      const { sendEmail } = await import("@/lib/emails/send");
+      const { indexingCompleteEmail } = await import(
+        "@/lib/emails/templates/indexing-complete"
+      );
+
+      const client = await clerkClient();
+      const user = await client.users.getUser(userId);
+      const email = user.emailAddresses[0]?.emailAddress;
+      if (!email) return;
+
+      const firstName = user.firstName || "there";
+      const appUrl =
+        process.env.NEXT_PUBLIC_APP_URL || "https://chatdoc.dev";
+
+      const html = indexingCompleteEmail({
+        firstName,
+        productName,
+        documentCount,
+        chunkCount,
+        type,
+        workspaceUrl: `${appUrl}/chat`,
+      });
+
+      const subject =
+        type === "reindex"
+          ? `Re-index complete: ${productName} is up to date`
+          : `${productName} is ready — start chatting`;
+
+      await sendEmail({ to: email, subject, html });
+      console.log(`[notify] Email sent to ${email} for ${productName} (${type})`);
+    });
+  },
+);
+
 // Export all functions for the Inngest serve handler
 export const functions = [
   indexDocSourceFunction,
@@ -1324,4 +1423,5 @@ export const functions = [
   indexDiscoveredPagesFunction,
   s3OrphanSweeperFunction,
   buildKnowledgeGraphFunction,
+  notifyIndexingCompleteFunction,
 ];

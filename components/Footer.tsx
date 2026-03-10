@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { FileText } from "lucide-react";
+import { useState } from "react";
+import { ContactModal } from "@/components/ContactModal";
 
 export function Footer() {
+  const [contactOpen, setContactOpen] = useState(false);
+
   return (
     <footer className="bg-black pt-32 pb-12 border-t border-white/10">
       <div className="max-w-[1400px] mx-auto px-6">
@@ -53,7 +56,7 @@ export function Footer() {
               </li>
             </ul>
           </div>
-          {/* 
+          {/*
           <div>
             <h4 className="text-[10px] font-mono uppercase text-neutral-500 mb-4">
               Resources
@@ -106,6 +109,14 @@ export function Footer() {
                   LinkedIn
                 </Link>
               </li>
+              <li>
+                <button
+                  onClick={() => setContactOpen(true)}
+                  className="hover:text-white transition-colors cursor-pointer"
+                >
+                  Contact Us
+                </button>
+              </li>
             </ul>
           </div>
 
@@ -123,6 +134,12 @@ export function Footer() {
           </div>
         </div>
       </div>
+
+      <ContactModal
+        isOpen={contactOpen}
+        onClose={() => setContactOpen(false)}
+        defaultSubject="General inquiry"
+      />
     </footer>
   );
 }

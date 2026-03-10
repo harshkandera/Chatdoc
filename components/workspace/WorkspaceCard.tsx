@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useDocSourceStatus } from "@/lib/hooks/useDocSourceStatus";
 import { useState, useEffect, useRef } from "react";
+import { toast } from "sonner";
 
 interface WorkspaceCardProps {
   id: string;
@@ -65,6 +66,8 @@ export function WorkspaceCard({
   const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Only true when user explicitly clicked Re-index THIS session
   const reindexTriggeredRef = useRef(false);
+  // Track previous dynamic status to detect ready transition
+  const prevDynamicStatusRef = useRef<string | null>(null);
 
   // Use polling hook for real-time status
   const {
@@ -101,6 +104,25 @@ export function WorkspaceCard({
       if (reindexTimerRef.current) clearTimeout(reindexTimerRef.current);
     };
   }, [dynamicStatus]);
+
+  // Option A: fire a toast when indexing transitions to ready while tab is open
+  useEffect(() => {
+    const prev = prevDynamicStatusRef.current;
+    if (
+      prev !== null &&
+      isIndexingStatus(prev) &&
+      dynamicStatus === "ready"
+    ) {
+      const isReindex = reindexTriggeredRef.current;
+      toast.success(`${productName} is ready!`, {
+        description: isReindex
+          ? "Re-index complete. Your docs are up to date."
+          : "Indexing complete. Start chatting now.",
+        duration: 8000,
+      });
+    }
+    prevDynamicStatusRef.current = dynamicStatus;
+  }, [dynamicStatus, productName]);
 
   // Auto-dismiss docs updated banner after 8 seconds
   useEffect(() => {

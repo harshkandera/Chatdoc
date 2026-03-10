@@ -7,7 +7,7 @@ export async function GET(request: Request) {
   const user = await currentUser();
 
   if (!userId || !user) {
-    return NextResponse.redirect(new URL("/sign-in", request.url));
+    return NextResponse.redirect(new URL("/", request.url));
   }
 
   const priceId = process.env.NEXT_PUBLIC_POLAR_PRICE_ID;
