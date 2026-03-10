@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { Plus, FolderOpen, Zap, Crown, BookOpen, LayoutGrid } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { WorkspaceCard } from "./WorkspaceCard";
 import { AddWorkspaceModal } from "./AddWorkspaceModal";
 import { DocCatalog } from "./DocCatalog";
@@ -99,78 +98,74 @@ export function WorkspacePanel() {
   return (
     <div className="flex-1 overflow-auto p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <div className="flex items-center gap-3 mb-1">
-            <h1 className="text-xl font-bold text-white">
+            <h1 className="text-xl font-semibold text-white tracking-tight">
               {activeTab === "my" ? "My Workspaces" : "Browse Docs"}
             </h1>
             {usage && activeTab === "my" && (
               <span
-                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${
+                className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium border rounded ${
                   usage.isPro
-                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                    : "bg-white/5 text-neutral-400 border-white/10"
+                    ? "text-emerald-400 border-emerald-500/30 bg-emerald-500/5"
+                    : "text-neutral-500 border-white/10 bg-white/[0.03]"
                 }`}
               >
-                {usage.isPro ? (
-                  <Crown className="w-3 h-3" />
-                ) : (
-                  <Zap className="w-3 h-3" />
-                )}
+                {usage.isPro ? <Crown className="w-2.5 h-2.5" /> : <Zap className="w-2.5 h-2.5" />}
                 {usage.plan}
               </span>
             )}
           </div>
-          <p className="text-sm text-neutral-400">
+          <p className="text-sm text-neutral-500">
             {activeTab === "my"
               ? usage
                 ? `${usage.count} / ${usage.limit} workspaces used`
                 : "Your indexed documentation sources"
-              : "Already-indexed docs — start chatting instantly, no setup needed"}
+              : "Already-indexed docs — start chatting instantly"}
           </p>
         </div>
 
         {activeTab === "my" && (
-          <Button
+          <button
             onClick={() => setShowModal(true)}
             disabled={!canAddWorkspace}
-            className={
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border rounded-md transition-colors ${
               canAddWorkspace
-                ? "bg-emerald-600 hover:bg-emerald-500 text-white gap-2"
-                : "bg-white/5 text-neutral-500 cursor-not-allowed gap-2"
-            }
+                ? "bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-600"
+                : "bg-transparent text-neutral-600 border-white/10 cursor-not-allowed"
+            }`}
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-3.5 h-3.5" />
             {canAddWorkspace ? "Add Workspace" : "Limit Reached"}
-          </Button>
+          </button>
         )}
       </div>
 
       {/* Tab switcher */}
-      <div className="flex items-center gap-1 p-1 bg-white/5 rounded-xl border border-white/8 w-fit mb-6">
+      <div className="flex items-center border-b border-white/[0.06] mb-6">
         <button
           onClick={() => setActiveTab("my")}
           className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+            "flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px",
             activeTab === "my"
-              ? "bg-white/10 text-white shadow-sm"
-              : "text-neutral-400 hover:text-white",
+              ? "text-white border-emerald-500"
+              : "text-neutral-500 border-transparent hover:text-neutral-300",
           )}
         >
-          <LayoutGrid className="w-4 h-4" />
+          <LayoutGrid className="w-3.5 h-3.5" />
           My Workspaces
         </button>
         <button
           onClick={() => setActiveTab("browse")}
           className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+            "flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px",
             activeTab === "browse"
-              ? "bg-white/10 text-white shadow-sm"
-              : "text-neutral-400 hover:text-white",
+              ? "text-white border-emerald-500"
+              : "text-neutral-500 border-transparent hover:text-neutral-300",
           )}
         >
-          <BookOpen className="w-4 h-4" />
+          <BookOpen className="w-3.5 h-3.5" />
           Browse Docs
         </button>
       </div>
@@ -180,31 +175,27 @@ export function WorkspacePanel() {
         <>
           {/* Limit reached banner */}
           {usage?.isReached && !usage?.isPro && (
-            <div className="mb-6 p-4 rounded-xl bg-amber-500/5 border border-amber-500/15 flex items-center justify-between">
+            <div className="mb-6 p-4 border border-amber-500/20 bg-amber-500/5 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-amber-500/20 rounded-lg flex items-center justify-center">
-                  <Zap className="w-4 h-4 text-amber-400" />
-                </div>
+                <Zap className="w-4 h-4 text-amber-400 shrink-0" />
                 <div>
-                  <p className="text-sm font-medium text-white">
-                    Workspace limit reached
-                  </p>
-                  <p className="text-xs text-neutral-400">
-                    Upgrade to Pro to add more documentation sources
+                  <p className="text-sm text-white">Workspace limit reached</p>
+                  <p className="text-xs text-neutral-500">
+                    Upgrade to Pro to add more sources
                   </p>
                 </div>
               </div>
-              <Button
+              <button
                 onClick={() =>
                   window.open(
                     `/api/checkout?products=${process.env.NEXT_PUBLIC_POLAR_PRICE_ID || ""}`,
                     "_self",
                   )
                 }
-                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs"
+                className="px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
               >
                 Upgrade
-              </Button>
+              </button>
             </div>
           )}
 
@@ -213,33 +204,31 @@ export function WorkspacePanel() {
               <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
             </div>
           ) : workspaces.length === 0 ? (
-            <div className="glass-card rounded-2xl p-12 text-center">
-              <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <FolderOpen className="w-8 h-8 text-neutral-500" />
-              </div>
-              <h3 className="text-xl font-semibold text-white mb-2">
+            <div className="border border-white/[0.06] border-dashed p-16 flex flex-col items-center text-center">
+              <FolderOpen className="w-6 h-6 text-neutral-600 mb-6" />
+              <p className="text-xs text-neutral-600 mb-3">
                 No workspaces yet
-              </h3>
-              <p className="text-neutral-400 mb-2 max-w-md mx-auto">
-                Add your first documentation source to start chatting with it
               </p>
-              <p className="text-neutral-500 text-sm mb-6">
+              <p className="text-sm text-neutral-400 mb-1">
+                Add your first documentation source to start chatting
+              </p>
+              <p className="text-xs text-neutral-600 mb-8">
                 Or{" "}
                 <button
                   onClick={() => setActiveTab("browse")}
-                  className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
+                  className="text-emerald-500 hover:text-emerald-400 transition-colors"
                 >
                   browse already-indexed docs
-                </button>{" "}
-                and start chatting instantly
+                </button>
+                {" "}and start instantly
               </p>
-              <Button
+              <button
                 onClick={() => setShowModal(true)}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white gap-2"
+                className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-md bg-white text-black hover:bg-neutral-200 transition-colors"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-3.5 h-3.5" />
                 Add Your First Workspace
-              </Button>
+              </button>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

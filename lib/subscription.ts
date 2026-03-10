@@ -97,7 +97,7 @@ export async function invalidateSubscriptionCache(userId: string) {
 
 export async function checkDocLimit(userId: string) {
   const sub = await getUserSubscription(userId);
-  const limit = sub?.plan?.limit || 1;
+  const limit = sub?.plan?.limit ?? FREE_PLAN.limit;
 
   const count = await prisma.workspace.count({
     where: { userId },
