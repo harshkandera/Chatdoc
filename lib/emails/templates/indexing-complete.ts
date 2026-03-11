@@ -88,7 +88,7 @@ export function indexingCompleteEmail({
                     <table cellpadding="0" cellspacing="0" border="0">
                       <tr>
                         <td style="vertical-align:middle;padding-right:10px;">
-                          <img src="${logoUrl}" width="28" height="28"
+                          <img src="${logoUrl}" width="52" height="28"
                             alt="ChatDoc" border="0"
                             style="display:block;border:0;outline:none;text-decoration:none;" />
                         </td>
