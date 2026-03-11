@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
@@ -33,6 +33,7 @@ function ChatContent() {
   const [error, setError] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(!workspaceId && !view);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const chatIdRef = useRef<string | null>(null);
 
   // Render-time state adjustments
   if (!workspaceId && workspace !== null) {
@@ -50,6 +51,19 @@ function ChatContent() {
         body: {
           workspaceId,
           modelOptionId: selectedModel,
+        },
+        fetch: async (url, options) => {
+          // Inject the current chatId into every request body
+          const body = JSON.parse((options?.body as string) || "{}");
+          if (chatIdRef.current) body.chatId = chatIdRef.current;
+          const response = await fetch(url, {
+            ...options,
+            body: JSON.stringify(body),
+          });
+          // Capture chatId from the first response and reuse it for all subsequent messages
+          const returnedChatId = response.headers.get("X-Chat-Id");
+          if (returnedChatId) chatIdRef.current = returnedChatId;
+          return response;
         },
       }),
     [workspaceId, selectedModel],
