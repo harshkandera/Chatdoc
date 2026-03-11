@@ -5,6 +5,7 @@ export function welcomeEmail({
   firstName: string;
   appUrl: string;
 }): string {
+  const logoUrl = `${appUrl}/log.png`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -34,7 +35,12 @@ export function welcomeEmail({
             <td style="padding:40px 48px 32px;">
               <table cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <td>
+                  <td style="vertical-align:middle;padding-right:10px;">
+                    <img src="${logoUrl}" width="28" height="28"
+                      alt="ChatDoc" border="0"
+                      style="display:block;border:0;outline:none;text-decoration:none;" />
+                  </td>
+                  <td style="vertical-align:middle;">
                     <span style="font-family:monospace;font-size:11px;letter-spacing:3px;
                       text-transform:uppercase;color:#10b981;">
                       CHATDOC

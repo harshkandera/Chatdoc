@@ -5,6 +5,7 @@ export function indexingCompleteEmail({
   chunkCount,
   type,
   workspaceUrl,
+  appUrl = "https://www.thechatdoc.online",
 }: {
   firstName: string;
   productName: string;
@@ -12,7 +13,9 @@ export function indexingCompleteEmail({
   chunkCount?: number;
   type: "index" | "reindex";
   workspaceUrl: string;
+  appUrl?: string;
 }): string {
+  const logoUrl = `${appUrl}/log.png`;
   const isReindex = type === "reindex";
   const badge = isReindex ? "RE-INDEX COMPLETE" : "INDEXING COMPLETE";
   const headline = isReindex
@@ -81,9 +84,20 @@ export function indexingCompleteEmail({
             <td style="padding:40px 48px 32px;">
               <table cellpadding="0" cellspacing="0" border="0" style="width:100%;">
                 <tr>
-                  <td>
-                    <span style="font-family:monospace;font-size:11px;letter-spacing:3px;
-                      text-transform:uppercase;color:#10b981;">CHATDOC</span>
+                  <td style="vertical-align:middle;">
+                    <table cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="vertical-align:middle;padding-right:10px;">
+                          <img src="${logoUrl}" width="28" height="28"
+                            alt="ChatDoc" border="0"
+                            style="display:block;border:0;outline:none;text-decoration:none;" />
+                        </td>
+                        <td style="vertical-align:middle;">
+                          <span style="font-family:monospace;font-size:11px;letter-spacing:3px;
+                            text-transform:uppercase;color:#10b981;">CHATDOC</span>
+                        </td>
+                      </tr>
+                    </table>
                   </td>
                   <td align="right">
                     <span style="display:inline-block;padding:4px 10px;
