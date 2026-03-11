@@ -41,9 +41,10 @@ const techItemsColumn2 = [
 // Column 3 items (scrolls up)
 const techItemsColumn3 = [
   { name: "OpenAI", type: "Intelligence", icon: Eye, color: "#ffffff" },
-  { name: "Chroma", type: "Vector Store", icon: Database, color: "#FF6B6B" },
-  { name: "Python", type: "Backend", icon: Code2, color: "#3776AB" },
+  { name: "Pinecode", type: "Vector Store", icon: Database, color: "#FF6B6B" },
+  { name: "Next.js", type: "Backend", icon: Code2, color: "#3776AB" },
   { name: "Inggest", type: "Ingestion", icon: Cpu, color: "#3776AB" },
+  { name: "Neo4j", type: "Knowledge graph", icon: Database, color: "#FF6B6B" },
 ];
 
 export function TechStackSection() {
@@ -147,7 +148,7 @@ export function TechStackSection() {
                     Vector Database
                   </div>
                   <div className="text-[10px] text-neutral-500 font-mono uppercase">
-                    Pinecone / Chroma
+                    Pinecone
                   </div>
                 </div>
               </div>
@@ -160,7 +161,7 @@ export function TechStackSection() {
                     AI Models
                   </div>
                   <div className="text-[10px] text-neutral-500 font-mono uppercase">
-                    GPT-4 / Gemini
+                    GROQ / Gemini
                   </div>
                 </div>
               </div>
@@ -173,7 +174,7 @@ export function TechStackSection() {
                     Agent Framework
                   </div>
                   <div className="text-[10px] text-neutral-500 font-mono uppercase">
-                    LangGraph / LangSmith
+                    LangGraph / Langchain
                   </div>
                 </div>
               </div>
